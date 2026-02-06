@@ -1,3 +1,4 @@
+const BASE = import.meta.env.BASE_URL;
 import * as THREE from "three";
 import { ARButton } from "three/examples/jsm/webxr/ARButton.js";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
@@ -183,7 +184,7 @@ function buildStencilPortalWorld() {
   root.add(inner);
 
   // 全景球（门内世界背景）
-  const panoTex = new THREE.TextureLoader().load("/pano.jpg");
+  const panoTex = new THREE.TextureLoader().load(`${BASE}pano.jpg`);
   panoTex.colorSpace = THREE.SRGBColorSpace;
 
   const sphere = new THREE.Mesh(
@@ -204,7 +205,7 @@ function buildStencilPortalWorld() {
   inner.add(sphere);
 
   // 星云层（叠加，漂浮）
-  const nebTex = new THREE.TextureLoader().load("/nebula.png");
+  const nebTex  = new THREE.TextureLoader().load(`${BASE}nebula.png`);
   nebTex.colorSpace = THREE.SRGBColorSpace;
   const nebula = new THREE.Mesh(
     new THREE.PlaneGeometry(12, 7),
@@ -296,7 +297,7 @@ function buildTwinkleStars() {
   geo.setAttribute("aScale", new THREE.BufferAttribute(scales, 1));
   geo.setAttribute("aTw", new THREE.BufferAttribute(tw, 1));
 
-  const sprite = new THREE.TextureLoader().load("/star.png");
+  const sprite  = new THREE.TextureLoader().load(`${BASE}star.png`);
   const mat = new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
@@ -478,7 +479,7 @@ function createMeteorEmitter(startW, endW) {
   dir.normalize();
   const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
 
-  const texture = new THREE.TextureLoader().load("/meteor.png");
+  const texture = new THREE.TextureLoader().load(`${BASE}meteor.png`);
 
   // 电影感：高发射率 + additive + bloom + 噪声扰动 + 颜色/尺寸曲线
   const ps = new ParticleSystem({
