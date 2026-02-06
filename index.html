@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+    <title>AR 新年星云传送门</title>
+    <style>
+      html, body { margin: 0; padding: 0; overflow: hidden; background: #000; }
+      #hint {
+        position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+        color: rgba(255,255,255,.92); font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto;
+        padding: 10px 12px; border-radius: 12px;
+        background: rgba(0,0,0,.35); backdrop-filter: blur(8px);
+        max-width: min(92vw, 520px); text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="hint">点 “ENTER AR” → 对准地面 → 点击放置传送门 → 透过门看星云；在屏幕上划一下生成流星 ✨</div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

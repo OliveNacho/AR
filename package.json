@@ -1,0 +1,22 @@
+{
+  "name": "ar-portal-newyear",
+  "version": "1.0.0",
+  "description": "",
+  "main": "vite.config.js",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview --host"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "three": "^0.182.0",
+    "three.quarks": "^0.17.0"
+  },
+  "devDependencies": {
+    "vite": "^7.3.1"
+  }
+}
