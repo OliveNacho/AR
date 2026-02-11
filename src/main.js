@@ -50,7 +50,7 @@ const LAYER_PORTAL = 2; // 门洞窗口内容
 const LAYER_INSIDE = 3; // 门内全屏世界
 
 /** ===== 调试开关 ===== */
-const SHOW_DEBUG = false;
+const SHOW_DEBUG = true;
 
 let scene, renderer;
 let baseCamera, controller;
