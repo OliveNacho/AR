@@ -5,16 +5,16 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 const BASE = import.meta.env.BASE_URL;
 
 /** 你主要调这几个（已按你反馈：远一点、小一点、正对） **/
-const DOOR_TARGET_HEIGHT_M = 2.35; // 门别太夸张
-const PLACE_DISTANCE_M = 1.45;     // 远一点（之前太近）
-const DOOR_SCALE_MULT = 0.92;      // 再整体缩一点（防止“过大”）
+const DOOR_TARGET_HEIGHT_M = 2.00; // 门别太夸张
+const PLACE_DISTANCE_M = 1.60;     // 远一点（之前太近）
+const DOOR_SCALE_MULT = 0.85;      // 再整体缩一点（防止“过大”）
 
 /**
  * ✅ 门模型朝向修正（关键）
  * 你现在是“侧门框先出现”，99% 是 GLB 的前向轴不对。
  * 先用 Math.PI（180°）修正；如果你发现变成背对你，就改成 0。
  */
-const DOOR_YAW_OFFSET = Math.PI;
+const DOOR_YAW_OFFSET = Math.PI / 2;
 
 // 门洞估算（按门整体包围盒比例）
 const HOLE_WIDTH_FACTOR = 0.54;
