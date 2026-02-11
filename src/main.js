@@ -4,7 +4,7 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 const BASE = import.meta.env.BASE_URL;
 
-/** 你主要调这些（我按你的反馈先给了更合适的默认值） **/
+/** 你主要调这几个（我按你的反馈先给了更合适的默认值） **/
 const DOOR_TARGET_HEIGHT_M = 2.55; // 门更高一点
 const PLACE_DISTANCE_M = 1.10;     // 门更近一点（避免太远）
 
@@ -14,7 +14,7 @@ const PLACE_DISTANCE_M = 1.10;     // 门更近一点（避免太远）
  * - yCenterFactor：门洞中心在门整体高度中的位置（通常略高于 0.5）
  */
 const HOLE_WIDTH_FACTOR = 0.55;
-const HOLE_HEIGHT_FACTOR = 0.78;
+const HOLE_HEIGHT_FACTOR = 0.75; // 调整比例，减少穿帮
 const HOLE_YCENTER_FACTOR = 0.53;
 
 const PORTAL_MASK_Z = -0.03;  // 遮罩稍微放门后一点
