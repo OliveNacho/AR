@@ -5,9 +5,9 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 const BASE = import.meta.env.BASE_URL;
 
 /** 你主要调这几个（已按你反馈：远一点、小一点、正对） **/
-const DOOR_TARGET_HEIGHT_M = 2.00; // 门别太夸张
+const DOOR_TARGET_HEIGHT_M = 2.10; // 门别太夸张
 const PLACE_DISTANCE_M = 1.60;     // 远一点（之前太近）
-const DOOR_SCALE_MULT = 0.85;      // 再整体缩一点（防止“过大”）
+const DOOR_SCALE_MULT = 0.90;      // 再整体缩一点（防止“过大”）
 
 /**
  * ✅ 门模型朝向修正（关键）
@@ -50,6 +50,9 @@ let portalWindowGroup = null; // ✅ 挂在门上：门外透过门洞看到的�
 let insideGroup = null;       // ✅ 进门后：pano包裹你
 
 let prevSignedBackDist = 0;
+
+let portalBackDirWorld = new THREE.Vector3(0, 0, 1); // 放置门时确定，之后一直用它
+let portalCenterWorld = new THREE.Vector3();         // 门洞中心点（世界坐标）
 
 // audio
 let listener;
@@ -233,42 +236,50 @@ function computeDoorClippingPlanes() {
   const hw = holeW / 2;
   const hh = holeH / 2;
 
+  // 先确保门洞中心点是最新的世界坐标
+  computePortalCenterWorld(); // 会更新 portalCenterWorld
+
+  // 门洞四条边的“世界坐标点”
+  // 我们先在 doorGroup 局部算点，再转到世界
   const cL = new THREE.Vector3(0, holeCenterY, 0);
-  const pL = cL.clone().add(new THREE.Vector3(-hw, 0, 0));
-  const pR = cL.clone().add(new THREE.Vector3(hw, 0, 0));
-  const pT = cL.clone().add(new THREE.Vector3(0, hh, 0));
-  const pB = cL.clone().add(new THREE.Vector3(0, -hh, 0));
 
-  const m = doorGroup.matrixWorld;
-  const toWorld = (v) => v.clone().applyMatrix4(m);
+  const pL_local = cL.clone().add(new THREE.Vector3(-hw, 0, 0));
+  const pR_local = cL.clone().add(new THREE.Vector3(hw, 0, 0));
+  const pT_local = cL.clone().add(new THREE.Vector3(0, hh, 0));
+  const pB_local = cL.clone().add(new THREE.Vector3(0, -hh, 0));
 
-  const wL = toWorld(pL);
-  const wR = toWorld(pR);
-  const wT = toWorld(pT);
-  const wB = toWorld(pB);
-  const wC = toWorld(cL);
+  const pL = doorGroup.localToWorld(pL_local);
+  const pR = doorGroup.localToWorld(pR_local);
+  const pT = doorGroup.localToWorld(pT_local);
+  const pB = doorGroup.localToWorld(pB_local);
 
+  // 门的左右/上下方向（世界坐标）
+  // 注意：这四个法线必须“指向门洞内部要保留的半空间”
   const q = doorGroup.getWorldQuaternion(new THREE.Quaternion());
+  const rightDir = new THREE.Vector3(1, 0, 0).applyQuaternion(q).normalize();
+  const upDir = new THREE.Vector3(0, 1, 0).applyQuaternion(q).normalize();
 
-  const nLeft = new THREE.Vector3(1, 0, 0).applyQuaternion(q);
-  const nRight = new THREE.Vector3(-1, 0, 0).applyQuaternion(q);
-  const nTop = new THREE.Vector3(0, -1, 0).applyQuaternion(q);
-  const nBottom = new THREE.Vector3(0, 1, 0).applyQuaternion(q);
+  const nLeft = rightDir.clone();        // 通过左边界点，保留右侧
+  const nRight = rightDir.clone().negate(); // 通过右边界点，保留左侧
+  const nBottom = upDir.clone();         // 通过下边界点，保留上侧
+  const nTop = upDir.clone().negate();   // 通过上边界点，保留下侧
 
-  // doorGroup.lookAt(camera) => -Z 朝相机，+Z 为门后方向
-  const backDir = new THREE.Vector3(0, 0, 1).applyQuaternion(q).normalize();
+  // ✅ 关键：门后方向完全使用“放置时锁定的 portalBackDirWorld”
+  const backDir = portalBackDirWorld.clone().normalize();
 
+  // Front：裁掉门前，只保留门后
   const nFront = backDir.clone().negate();
-  const pFront = wC.clone();
+  const pFront = portalCenterWorld.clone();
 
-  const pBack = wC.clone().add(backDir.clone().multiplyScalar(PORTAL_DEPTH_M));
+  // Back：限制深度（避免无限远内容）
+  const pBack = portalCenterWorld.clone().add(backDir.clone().multiplyScalar(PORTAL_DEPTH_M));
   const nBack = backDir.clone();
 
   return [
-    new THREE.Plane().setFromNormalAndCoplanarPoint(nLeft, wL),
-    new THREE.Plane().setFromNormalAndCoplanarPoint(nRight, wR),
-    new THREE.Plane().setFromNormalAndCoplanarPoint(nTop, wT),
-    new THREE.Plane().setFromNormalAndCoplanarPoint(nBottom, wB),
+    new THREE.Plane().setFromNormalAndCoplanarPoint(nLeft, pL),
+    new THREE.Plane().setFromNormalAndCoplanarPoint(nRight, pR),
+    new THREE.Plane().setFromNormalAndCoplanarPoint(nTop, pT),
+    new THREE.Plane().setFromNormalAndCoplanarPoint(nBottom, pB),
     new THREE.Plane().setFromNormalAndCoplanarPoint(nFront, pFront),
     new THREE.Plane().setFromNormalAndCoplanarPoint(nBack, pBack),
   ];
@@ -400,11 +411,48 @@ function onSelect() {
   // ✅ 再加 yaw 偏移修正模型“侧对”的问题
   doorGroup.rotateY(DOOR_YAW_OFFSET);
 
-  prevSignedBackDist = signedBackDistance(xrCam);
+  // ✅ 放置门的瞬间，锁定“门后方向”和门洞中心，保证当前相机一定在门前
+initPortalBackDirection(xrCam);
+
+// ✅ 重新取一次距离，理论上应该 <= 0
+prevSignedBackDist = signedBackDistance(xrCam);
+
+// ✅ 强制从门外开始（防止任何抖动直接进门）
+isInside = false;
+if (insideGroup) insideGroup.visible = false;
+if (portalWindowGroup) portalWindowGroup.visible = true;
 
   placed = true;
   reticle.visible = false;
   ensureBGMStarted();
+}
+
+function computePortalCenterWorld() {
+  // 门洞中心：doorGroup局部(0, holeCenterY, 0)
+  portalCenterWorld.set(0, holeCenterY, 0);
+  doorGroup.localToWorld(portalCenterWorld);
+}
+
+function initPortalBackDirection(xrCam) {
+  // 先用 doorGroup 的“前向(-Z)”推一个 backDir = -forward
+  const q = doorGroup.getWorldQuaternion(new THREE.Quaternion());
+  const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(q).normalize();
+  portalBackDirWorld.copy(forward).multiplyScalar(-1); // back = -forward
+
+  // 门洞中心点
+  computePortalCenterWorld();
+
+  // 取相机位置，判断当前相机在门的哪一侧
+  const camPos = new THREE.Vector3();
+  xrCam.getWorldPosition(camPos);
+
+  const d0 = camPos.clone().sub(portalCenterWorld).dot(portalBackDirWorld);
+
+  // 关键：如果相机此刻在“门后侧”(d0>0)，说明 backDir 指反了，立刻翻转
+  // 这样保证：放下门时，相机一定在“门前侧”(d0<=0)
+  if (d0 > 0) {
+    portalBackDirWorld.multiplyScalar(-1);
+  }
 }
 
 // 相机沿门后方向(+Z)的有符号距离：>0 在门后，<0 在门前
@@ -412,13 +460,11 @@ function signedBackDistance(xrCam) {
   const camPos = new THREE.Vector3();
   xrCam.getWorldPosition(camPos);
 
-  const doorPos = new THREE.Vector3();
-  doorGroup.getWorldPosition(doorPos);
+  // 门洞中心点确保最新
+  computePortalCenterWorld();
 
-  const q = doorGroup.getWorldQuaternion(new THREE.Quaternion());
-  const backDir = new THREE.Vector3(0, 0, 1).applyQuaternion(q).normalize();
-
-  return camPos.sub(doorPos).dot(backDir);
+  // >0 表示在门后；<0 表示在门前
+  return camPos.sub(portalCenterWorld).dot(portalBackDirWorld);
 }
 
 function updatePortalState() {
