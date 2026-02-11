@@ -17,58 +17,49 @@ const DOOR_YAW_OFFSET = Math.PI / 2;
 ========================= */
 const USE_MANUAL_HOLE = true;
 const MANUAL_HOLE = {
-  width: 1.50,   // 调大更宽
-  height: 1.54,  // 调大更高
-  centerY: 0.88, // 调大上移
+  width: 1.48,   // 门洞宽：调大=更宽
+  height: 1.52,  // 门洞高：调大=更高
+  centerY: 0.88, // 门洞中心Y：调大=上移
   offsetX: 0.00, // 左右微调
-  offsetY: 0.00, // 上下微调（叠加到 centerY）
+  offsetY: 0.00, // 上下微调（叠加到centerY）
 };
 
-// 自动估算备用
+// 自动估算备用（USE_MANUAL_HOLE=false时生效）
 const HOLE_WIDTH_FACTOR = 0.60;
 const HOLE_HEIGHT_FACTOR = 0.72;
 const HOLE_YCENTER_FACTOR = 0.50;
-const MASK_OVERSCAN_W = 1.18;
-const MASK_OVERSCAN_H = 1.08;
+const MASK_OVERSCAN_W = 1.16;
+const MASK_OVERSCAN_H = 1.06;
 
 /* =========================
-   过门判定参数
+   过门判定参数（稳定切换）
 ========================= */
-const TRIGGER_OVERSCAN_W = 1.55;
-const TRIGGER_OVERSCAN_H = 1.40;
-const CROSSING_Z_GATE_M = 1.60;
-
-const ENTER_THRESHOLD_M = 0.01;
-const EXIT_THRESHOLD_M = 0.10;
-const FORCE_ENTER_DIST_M = 0.22;
-const FORCE_EXIT_DIST_M = 0.22;
-const TRANSITION_COOLDOWN_MS = 550;
+const ENTER_THRESHOLD_M = 0.02; // 进入阈值
+const EXIT_THRESHOLD_M = 0.12;  // 退出阈值（滞回，防抖）
+const FORCE_ENTER_M = 0.30;     // 兜底进入
+const FORCE_EXIT_M = 0.30;      // 兜底退出
+const TRANSITION_COOLDOWN_MS = 650;
+const CROSSING_Z_GATE_M = 1.4;  // 必须在门平面附近才允许切换
 
 /* =========================
-   门后世界参数（关键）
-   让球域明确在门后，不以门为球心
+   门外预览 & 门内世界
 ========================= */
-const WORLD_CENTER_OFFSET_M = 16.0; // 世界中心在门后 16m
-const WORLD_CENTER_Y_M = 1.45;
+const PREVIEW_CENTER_DISTANCE_M = 6.4; // 预览球在“门后”6.4m
+const PREVIEW_RADIUS_M = 12.0;         // 保证门前相机也在球内，避免“圆盘感”
 
-const PREVIEW_SPHERE_RADIUS_M = 8.0;  // 门外看到的预览球
-const INSIDE_SPHERE_RADIUS_M = 90.0;  // 门内沉浸球（大）
-
-/* =========================
-   星云/星点
-========================= */
-const WINDOW_STAR_COUNT = 2600;
+const INSIDE_RADIUS_M = 70.0;          // 门内沉浸球半径（大）
 const INSIDE_STAR_COUNT = 9000;
-const WINDOW_NEBULA_COUNT = 6;
-const INSIDE_NEBULA_COUNT = 14;
+const PREVIEW_STAR_COUNT = 3200;
+const INSIDE_NEBULA_COUNT = 12;
+const PREVIEW_NEBULA_COUNT = 7;
 
 /* =========================
    图层
 ========================= */
-const LAYER_MAIN = 0;     // 门框 + reticle
-const LAYER_MASK = 1;     // 门洞 stencil mask
-const LAYER_PREVIEW = 2;  // 门外预览内容（受stencil限制）
-const LAYER_INSIDE = 3;   // 门内全屏世界
+const LAYER_MAIN = 0;    // 门框 + reticle
+const LAYER_MASK = 1;    // stencil写入mask
+const LAYER_PREVIEW = 2; // 门外预览内容（受stencil）
+const LAYER_INSIDE = 3;  // 门内沉浸世界
 
 /* =========================
    调试
@@ -97,23 +88,21 @@ let placed = false;
 let isInside = false;
 let lastTransitionMs = 0;
 
+// 以放门时相机所在侧作为“门前”
+let frontSign = 1;
+let prevSignedFrontDist = 0;
+
 // 门洞参数
 let holeW = 1.2;
 let holeH = 1.8;
 let holeCenterY = 0.9;
-let holeOffsetX = 0.0;
-let holeOffsetY = 0.0;
-let triggerW = 1.6;
-let triggerH = 2.2;
-
-// 过门方向：frontSign 由“放门时相机位于门哪侧”确定
-let frontSign = 1;
-let prevSideDist = 0;
+let holeOffsetX = 0;
+let holeOffsetY = 0;
 
 let panoTexture = null;
 let debugEl = null;
 
-// 临时对象
+// temp
 const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _v3 = new THREE.Vector3();
@@ -122,7 +111,7 @@ init();
 animate();
 
 /* =========================
-   初始化
+   init
 ========================= */
 function init() {
   scene = new THREE.Scene();
@@ -189,9 +178,9 @@ function createResetButton() {
   btn.style.borderRadius = "10px";
   btn.style.border = "1px solid rgba(255,255,255,0.6)";
   btn.style.background = "rgba(0,0,0,0.35)";
-  btn.style.color = "white";
+  btn.style.color = "#fff";
   btn.style.backdropFilter = "blur(6px)";
-  btn.onclick = () => resetAll();
+  btn.onclick = resetAll;
   document.body.appendChild(btn);
 }
 
@@ -205,22 +194,20 @@ function createDebugPanel() {
   debugEl.style.borderRadius = "8px";
   debugEl.style.fontFamily = "monospace";
   debugEl.style.fontSize = "12px";
-  debugEl.style.lineHeight = "1.4";
+  debugEl.style.lineHeight = "1.35";
   debugEl.style.color = "#fff";
   debugEl.style.background = "rgba(0,0,0,0.45)";
   debugEl.textContent = "debug...";
   document.body.appendChild(debugEl);
 }
 
-function updateDebug(sideDist, gate, local) {
+function updateDebug(localCam, signedFrontDist, gate) {
   if (!debugEl) return;
   debugEl.textContent =
     `inside=${isInside} placed=${placed}\n` +
-    `sideDist=${sideDist.toFixed(3)} gate=${gate}\n` +
-    `local=(${local.x.toFixed(2)}, ${local.y.toFixed(2)}, ${local.z.toFixed(2)})\n` +
-    `frontSign=${frontSign}\n` +
-    `hole=${holeW.toFixed(2)} x ${holeH.toFixed(2)} @y=${holeCenterY.toFixed(2)}\n` +
-    `trigger=${triggerW.toFixed(2)} x ${triggerH.toFixed(2)}`;
+    `frontSign=${frontSign} signed=${signedFrontDist.toFixed(3)} gate=${gate}\n` +
+    `local=(${localCam.x.toFixed(2)}, ${localCam.y.toFixed(2)}, ${localCam.z.toFixed(2)})\n` +
+    `hole=${holeW.toFixed(2)} x ${holeH.toFixed(2)} @y=${holeCenterY.toFixed(2)}`;
 }
 
 function resetAll() {
@@ -228,11 +215,11 @@ function resetAll() {
   isInside = false;
   lastTransitionMs = 0;
   frontSign = 1;
-  prevSideDist = 0;
-
+  prevSignedFrontDist = 0;
   reticle.visible = false;
 
   if (doorGroup) scene.remove(doorGroup);
+  if (insideWorldRoot) scene.remove(insideWorldRoot);
 
   doorGroup = null;
   doorVisualGroup = null;
@@ -276,12 +263,21 @@ function normalizeDoorModel(model, targetHeightMeters) {
 }
 
 /* =========================
-   材质 / stencil
+   纹理
+========================= */
+function getPanoTexture() {
+  if (panoTexture) return panoTexture;
+  panoTexture = new THREE.TextureLoader().load(`${BASE}textures/pano.jpg`);
+  panoTexture.colorSpace = THREE.SRGBColorSpace;
+  panoTexture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  return panoTexture;
+}
+
+/* =========================
+   stencil helpers
 ========================= */
 function setLayerRecursive(root, layer) {
-  root.traverse((o) => {
-    if (o.layers) o.layers.set(layer);
-  });
+  root.traverse((o) => o.layers && o.layers.set(layer));
 }
 
 function setMaskStencil(mat) {
@@ -302,13 +298,14 @@ function setMaskStencil(mat) {
 }
 
 function setReadStencil(mat) {
-  mat.stencilWrite = true; // three 中开启材质 stencil 状态
+  // three中材质级 stencil test 需要 stencilWrite=true 才会应用
+  mat.stencilWrite = true;
   mat.stencilRef = 1;
   mat.stencilFunc = THREE.EqualStencilFunc;
   mat.stencilFail = THREE.KeepStencilOp;
   mat.stencilZFail = THREE.KeepStencilOp;
   mat.stencilZPass = THREE.KeepStencilOp;
-  mat.stencilWriteMask = 0x00; // 只读，不写
+  mat.stencilWriteMask = 0x00; // 只读不写
   mat.stencilFuncMask = 0xff;
   mat.needsUpdate = true;
 }
@@ -317,7 +314,7 @@ function applyStencilRead(root) {
   root.traverse((o) => {
     if (!o.material) return;
     const mats = Array.isArray(o.material) ? o.material : [o.material];
-    for (const m of mats) setReadStencil(m);
+    mats.forEach(setReadStencil);
   });
 }
 
@@ -329,16 +326,8 @@ function setXRCameraLayer(xrCam, layer) {
 }
 
 /* =========================
-   纹理与星空
+   星空
 ========================= */
-function getPanoTexture() {
-  if (panoTexture) return panoTexture;
-  panoTexture = new THREE.TextureLoader().load(`${BASE}textures/pano.jpg`);
-  panoTexture.colorSpace = THREE.SRGBColorSpace;
-  panoTexture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-  return panoTexture;
-}
-
 function makeStarSpriteTexture() {
   const c = document.createElement("canvas");
   c.width = 64;
@@ -361,7 +350,7 @@ function makeStarSpriteTexture() {
   return tex;
 }
 
-function makeStarFieldPoints(count, radius, size, depthTest = true) {
+function makeStarField(count = 4000, radius = 10, size = 0.1, depthTest = true) {
   const geo = new THREE.BufferGeometry();
   const pos = new Float32Array(count * 3);
 
@@ -421,7 +410,7 @@ function makeNebulaTexture(seed = 0) {
   return tex;
 }
 
-function makeNebulaBillboard(seed = 0, size = 6.0, depthTest = true) {
+function makeNebula(seed = 0, size = 6.0, depthTest = true) {
   const mat = new THREE.MeshBasicMaterial({
     map: makeNebulaTexture(seed),
     transparent: true,
@@ -437,7 +426,7 @@ function makeNebulaBillboard(seed = 0, size = 6.0, depthTest = true) {
 }
 
 /* =========================
-   门洞几何
+   门洞shape
 ========================= */
 function makeArchMaskGeometry(width, height) {
   const w = width;
@@ -457,7 +446,7 @@ function makeArchMaskGeometry(width, height) {
 }
 
 /* =========================
-   构建场景对象
+   构建内容
 ========================= */
 function buildOnce() {
   if (doorGroup) return;
@@ -466,7 +455,7 @@ function buildOnce() {
   doorGroup.layers.set(LAYER_MAIN);
   scene.add(doorGroup);
 
-  // 视觉模型组：仅这里做 yaw 修正，避免影响mask和过门坐标
+  // 视觉模型层：yaw修正只作用这里
   doorVisualGroup = new THREE.Group();
   doorVisualGroup.rotation.y = DOOR_YAW_OFFSET;
   doorVisualGroup.scale.setScalar(DOOR_SCALE_MULT);
@@ -478,8 +467,12 @@ function buildOnce() {
     setLayerRecursive(m, LAYER_MAIN);
     doorVisualGroup.add(m);
   } else {
-    // fallback 门框
-    const mat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.7, metalness: 0.1 });
+    // fallback门框
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0x2a2a2a,
+      roughness: 0.7,
+      metalness: 0.1,
+    });
     const h = DOOR_TARGET_HEIGHT_M;
     const postW = 0.16;
     const spanW = 1.10;
@@ -487,8 +480,10 @@ function buildOnce() {
 
     const left = new THREE.Mesh(new THREE.BoxGeometry(postW, h, depth), mat);
     left.position.set(-spanW * 0.5 + postW * 0.5, h * 0.5, 0);
+
     const right = new THREE.Mesh(new THREE.BoxGeometry(postW, h, depth), mat);
     right.position.set(spanW * 0.5 - postW * 0.5, h * 0.5, 0);
+
     const top = new THREE.Mesh(new THREE.BoxGeometry(spanW, postW, depth), mat);
     top.position.set(0, h - postW * 0.5, 0);
 
@@ -499,7 +494,7 @@ function buildOnce() {
     doorVisualGroup.add(left, right, top);
   }
 
-  // 计算门洞
+  // 计算门洞参数
   doorGroup.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(doorVisualGroup);
   const size = new THREE.Vector3();
@@ -512,32 +507,27 @@ function buildOnce() {
     holeOffsetX = MANUAL_HOLE.offsetX ?? 0;
     holeOffsetY = MANUAL_HOLE.offsetY ?? 0;
   } else {
-    const baseW = Math.max(0.9, size.x * HOLE_WIDTH_FACTOR);
+    const baseW = Math.max(0.90, size.x * HOLE_WIDTH_FACTOR);
     const baseH = Math.max(1.55, size.y * HOLE_HEIGHT_FACTOR);
-
     holeW = baseW * MASK_OVERSCAN_W;
     holeH = baseH * MASK_OVERSCAN_H;
     holeCenterY = size.y * HOLE_YCENTER_FACTOR;
-
     holeOffsetX = 0;
     holeOffsetY = 0;
   }
 
-  triggerW = holeW * TRIGGER_OVERSCAN_W;
-  triggerH = holeH * TRIGGER_OVERSCAN_H;
-
-  // 1) 门洞 mask（仅写 stencil）
+  // 1) stencil mask
   const maskGeo = makeArchMaskGeometry(holeW, holeH);
   const maskMat = new THREE.MeshBasicMaterial();
   setMaskStencil(maskMat);
 
   portalMaskMesh = new THREE.Mesh(maskGeo, maskMat);
-  portalMaskMesh.position.set(holeOffsetX, holeCenterY + holeOffsetY, 0);
+  portalMaskMesh.position.set(holeOffsetX, holeCenterY + holeOffsetY, -0.01);
   portalMaskMesh.layers.set(LAYER_MASK);
   portalMaskMesh.frustumCulled = false;
   doorGroup.add(portalMaskMesh);
 
-  // 2) 门外预览内容（受stencil）
+  // 2) 门外预览（受stencil）
   portalPreviewRoot = new THREE.Group();
   portalPreviewRoot.layers.set(LAYER_PREVIEW);
   doorGroup.add(portalPreviewRoot);
@@ -553,24 +543,24 @@ function buildOnce() {
   setReadStencil(previewSphereMat);
 
   const previewSphere = new THREE.Mesh(
-    new THREE.SphereGeometry(PREVIEW_SPHERE_RADIUS_M, 48, 36),
+    new THREE.SphereGeometry(PREVIEW_RADIUS_M, 56, 42),
     previewSphereMat
   );
   previewSphere.layers.set(LAYER_PREVIEW);
   previewSphere.frustumCulled = false;
   portalPreviewRoot.add(previewSphere);
 
-  const previewStars = makeStarFieldPoints(WINDOW_STAR_COUNT, PREVIEW_SPHERE_RADIUS_M * 0.95, 0.09, true);
+  const previewStars = makeStarField(PREVIEW_STAR_COUNT, PREVIEW_RADIUS_M * 0.92, 0.095, true);
   previewStars.layers.set(LAYER_PREVIEW);
   setReadStencil(previewStars.material);
   portalPreviewRoot.add(previewStars);
 
-  for (let i = 0; i < WINDOW_NEBULA_COUNT; i++) {
-    const neb = makeNebulaBillboard(i * 0.37, 3.8 + Math.random() * 2.0, true);
+  for (let i = 0; i < PREVIEW_NEBULA_COUNT; i++) {
+    const neb = makeNebula(i * 0.41, 4.8 + Math.random() * 2.2, true);
     neb.position.set(
-      (Math.random() - 0.5) * 6.0,
-      (Math.random() - 0.4) * 4.5,
-      (Math.random() - 0.5) * 6.0
+      (Math.random() - 0.5) * 8.0,
+      (Math.random() - 0.35) * 5.0,
+      (Math.random() - 0.5) * 8.0
     );
     neb.rotation.y = Math.random() * Math.PI;
     neb.layers.set(LAYER_PREVIEW);
@@ -580,13 +570,13 @@ function buildOnce() {
 
   applyStencilRead(portalPreviewRoot);
 
-  // 3) 门内沉浸世界（全屏）
+  // 3) 门内沉浸世界（进入后只渲染这一层）
   insideWorldRoot = new THREE.Group();
   insideWorldRoot.layers.set(LAYER_INSIDE);
-  doorGroup.add(insideWorldRoot);
+  scene.add(insideWorldRoot);
 
   const insideSphere = new THREE.Mesh(
-    new THREE.SphereGeometry(INSIDE_SPHERE_RADIUS_M, 64, 48),
+    new THREE.SphereGeometry(INSIDE_RADIUS_M, 64, 48),
     new THREE.MeshBasicMaterial({
       map: pano,
       side: THREE.BackSide,
@@ -599,16 +589,16 @@ function buildOnce() {
   insideSphere.renderOrder = 1000;
   insideWorldRoot.add(insideSphere);
 
-  const insideStars = makeStarFieldPoints(INSIDE_STAR_COUNT, INSIDE_SPHERE_RADIUS_M * 0.92, 0.11, false);
+  const insideStars = makeStarField(INSIDE_STAR_COUNT, INSIDE_RADIUS_M * 0.90, 0.11, false);
   insideStars.layers.set(LAYER_INSIDE);
   insideStars.renderOrder = 1001;
   insideWorldRoot.add(insideStars);
 
   for (let i = 0; i < INSIDE_NEBULA_COUNT; i++) {
-    const neb = makeNebulaBillboard(20 + i * 0.51, 8 + Math.random() * 5, false);
+    const neb = makeNebula(20 + i * 0.53, 8 + Math.random() * 5, false);
     neb.position.set(
       (Math.random() - 0.5) * 40,
-      (Math.random() - 0.25) * 26,
+      (Math.random() - 0.2) * 24,
       (Math.random() - 0.5) * 40
     );
     neb.rotation.y = Math.random() * Math.PI;
@@ -616,23 +606,16 @@ function buildOnce() {
     neb.renderOrder = 1002;
     insideWorldRoot.add(neb);
   }
-
-  // 初始按 frontSign=1 先摆一次，真正位置在 onSelect 后更新
-  updateWorldAnchorsFromFrontSign();
 }
 
-/* =========================
-   世界锚点更新（关键）
-   确保世界在“门后”
-========================= */
-function updateWorldAnchorsFromFrontSign() {
-  const backSign = -frontSign; // 与用户初始站位反向
-  const x = holeOffsetX;
-  const y = WORLD_CENTER_Y_M;
-  const z = backSign * WORLD_CENTER_OFFSET_M;
-
-  if (portalPreviewRoot) portalPreviewRoot.position.set(x, y, z);
-  if (insideWorldRoot) insideWorldRoot.position.set(x, y, z);
+function updatePreviewAnchorByFrontSign() {
+  if (!portalPreviewRoot) return;
+  const backSign = -frontSign; // 与放门时用户侧相反的一侧 = 门后
+  portalPreviewRoot.position.set(
+    holeOffsetX,
+    holeCenterY + holeOffsetY,
+    backSign * PREVIEW_CENTER_DISTANCE_M
+  );
 }
 
 /* =========================
@@ -645,7 +628,7 @@ function onSelect() {
 
   const xrCam = renderer.xr.getCamera(baseCamera);
 
-  // hit-test 地面高度
+  // 命中点用于地面高度
   const hitPos = _v1.setFromMatrixPosition(reticle.matrix);
 
   xrCam.getWorldPosition(_v2);
@@ -664,13 +647,14 @@ function onSelect() {
   lookAtPos.y = targetPos.y;
   doorGroup.lookAt(lookAtPos);
 
-  // 用“放门瞬间相机在门本地z的符号”定义 front/back
+  // 确定“门前侧”符号
   xrCam.getWorldPosition(_v1);
   const camLocal = doorGroup.worldToLocal(_v1.clone());
   frontSign = camLocal.z >= 0 ? 1 : -1;
-  prevSideDist = camLocal.z * frontSign;
+  prevSignedFrontDist = camLocal.z * frontSign;
 
-  updateWorldAnchorsFromFrontSign();
+  // 门后预览锚点
+  updatePreviewAnchorByFrontSign();
 
   isInside = false;
   lastTransitionMs = 0;
@@ -679,41 +663,49 @@ function onSelect() {
 }
 
 /* =========================
-   过门状态更新
+   过门判定
 ========================= */
+function cameraNearGate(localCam) {
+  const dx = localCam.x - holeOffsetX;
+  const dy = localCam.y - (holeCenterY + holeOffsetY);
+
+  const halfW = Math.max(0.60, holeW * 0.62);
+  const halfH = Math.max(1.00, holeH * 0.72);
+
+  const nearRect =
+    Math.abs(dx) <= halfW &&
+    Math.abs(dy) <= halfH &&
+    Math.abs(localCam.z) <= CROSSING_Z_GATE_M;
+
+  const nearCylinder =
+    Math.hypot(dx, localCam.z) <= 1.15 &&
+    Math.abs(dy) <= 1.60;
+
+  return nearRect || nearCylinder;
+}
+
 function updatePortalState(xrCam) {
   if (!placed || !doorGroup) return;
 
   xrCam.getWorldPosition(_v1);
-  const local = doorGroup.worldToLocal(_v1.clone());
+  const localCam = doorGroup.worldToLocal(_v1.clone());
 
-  // sideDist > 0 在门前；sideDist < 0 在门后
-  const sideDist = local.z * frontSign;
-
-  const dx = local.x - holeOffsetX;
-  const dy = local.y - (holeCenterY + holeOffsetY);
-
-  const nearX = Math.abs(dx) <= triggerW * 0.5 + 0.25;
-  const nearY = Math.abs(dy) <= triggerH * 0.5 + 0.55;
-  const nearZ = Math.abs(local.z) <= CROSSING_Z_GATE_M;
-
-  // 兜底：靠近门平面就算 gate（避免单一条件卡死）
-  const radialGate = Math.hypot(dx, local.z) <= 1.90;
-  const gate = (nearX && nearY && nearZ) || radialGate;
-
+  // >0 在门前；<0 在门后
+  const signedFrontDist = localCam.z * frontSign;
+  const gate = cameraNearGate(localCam);
   const now = performance.now();
 
   if (now - lastTransitionMs > TRANSITION_COOLDOWN_MS) {
     if (!isInside) {
-      const crossedToBack = prevSideDist >= 0 && sideDist < -ENTER_THRESHOLD_M;
-      const forceEnter = gate && sideDist < -FORCE_ENTER_DIST_M;
+      const crossedToBack = prevSignedFrontDist >= 0 && signedFrontDist < -ENTER_THRESHOLD_M;
+      const forceEnter = gate && signedFrontDist < -FORCE_ENTER_M;
       if ((crossedToBack && gate) || forceEnter) {
         isInside = true;
         lastTransitionMs = now;
       }
     } else {
-      const crossedToFront = prevSideDist <= 0 && sideDist > EXIT_THRESHOLD_M;
-      const forceExit = gate && sideDist > FORCE_EXIT_DIST_M;
+      const crossedToFront = prevSignedFrontDist <= 0 && signedFrontDist > EXIT_THRESHOLD_M;
+      const forceExit = gate && signedFrontDist > FORCE_EXIT_M;
       if ((crossedToFront && gate) || forceExit) {
         isInside = false;
         lastTransitionMs = now;
@@ -721,8 +713,9 @@ function updatePortalState(xrCam) {
     }
   }
 
-  prevSideDist = sideDist;
-  if (SHOW_DEBUG) updateDebug(sideDist, gate, local);
+  prevSignedFrontDist = signedFrontDist;
+
+  if (SHOW_DEBUG) updateDebug(localCam, signedFrontDist, gate);
 }
 
 /* =========================
@@ -764,28 +757,24 @@ function updateHitTest(frame) {
 }
 
 /* =========================
-   渲染循环
+   render
 ========================= */
 function render(_, frame) {
   if (frame && !placed) updateHitTest(frame);
 
   const xrCam = renderer.xr.getCamera(baseCamera);
-
   if (placed) updatePortalState(xrCam);
-  else if (SHOW_DEBUG) {
-    updateDebug(0, false, new THREE.Vector3());
-  }
 
-  // 0) 清屏（含 stencil）
+  // 0) 清屏（含stencil）
   renderer.clear(true, true, true);
 
-  // 1) 主 pass：现实 + 门框 + reticle
+  // 1) 主pass：现实 + 门框
   setXRCameraLayer(xrCam, LAYER_MAIN);
   renderer.render(scene, xrCam);
 
   if (!placed) return;
 
-  // 2) 门外：先写mask stencil，再画预览
+  // 2) 门外：写mask stencil -> 渲染门内预览
   if (!isInside && portalMaskMesh && portalPreviewRoot) {
     renderer.clear(false, false, true); // 只清 stencil
 
@@ -796,9 +785,12 @@ function render(_, frame) {
     renderer.render(scene, xrCam);
   }
 
-  // 3) 门内：全屏沉浸世界
+  // 3) 门内：渲染沉浸世界（持续包裹）
   if (isInside && insideWorldRoot) {
-    renderer.clearDepth(); // 避免被主pass深度影响
+    xrCam.getWorldPosition(_v2);
+    insideWorldRoot.position.copy(_v2); // 关键：始终包裹用户，避免“走进消失”
+
+    renderer.clearDepth();
     setXRCameraLayer(xrCam, LAYER_INSIDE);
     renderer.render(scene, xrCam);
   }
