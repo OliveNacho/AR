@@ -51,7 +51,7 @@ const LAYER_PORTAL = 2; // 门洞窗口内容
 const LAYER_INSIDE = 3; // 门内全屏星空
 
 /** ===== 调试 ===== */
-const SHOW_DEBUG = true;
+const SHOW_DEBUG = false;
 
 let scene, renderer;
 let baseCamera, controller;
