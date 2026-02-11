@@ -4,11 +4,13 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 const BASE = import.meta.env.BASE_URL;
 
-/** 你可以先只改这三个参数（不用看别的） **/
-const DOOR_TARGET_HEIGHT_M = 2.0;      // 门框归一化到约2米高
-const PORTAL_OPEN_W = 1.0;            // 门洞宽（米）——不准就调
-const PORTAL_OPEN_H = 2.0;            // 门洞高（米）——不准就调
-const PORTAL_OFFSET_Z = -0.02;        // 门洞遮罩平面略微放到门后一点点，避免Z-fighting
+/** 你只需要先关注这几个参数 **/
+const DOOR_TARGET_HEIGHT_M = 2.2; // 门整体目标高度（2.0~2.3都行，先用2.2更“可走进去”）
+const PLACE_DISTANCE_M = 1.6;     // 放到用户正前方的距离（米）
+const PORTAL_OPEN_W = 1.0;        // 门洞遮罩宽（米）——后面可再微调
+const PORTAL_OPEN_H = 2.0;        // 门洞遮罩高（米）——后面可再微调
+const PORTAL_MASK_Z = -0.02;      // 遮罩略微在门后，避免闪烁
+const PORTAL_WORLD_Z = -3.0;      // 门内世界放在门后多远（米）
 
 let camera, scene, renderer;
 let controller;
@@ -17,13 +19,13 @@ let hitTestSource = null;
 let hitTestSourceRequested = false;
 let reticle;
 
-let placed = false;        // 是否已放置（放置后锁定）
-let doorGroup = null;      // 门框 + 门洞mask + 门内世界
-let doorModel = null;      // 归一化后的门框glb
+let placed = false;
+let doorGroup = null;
+let doorModel = null;
 
-// Portal parts
-let portalMaskMesh = null; // 写入 stencil 的门洞平面（不可见）
-let portalWorld = null;    // 门内星空世界
+// portal
+let portalMaskMesh = null;
+let portalWorld = null;
 
 // audio
 let listener;
@@ -37,24 +39,24 @@ function init() {
 
   camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 50);
 
-  // 关键：开启 stencil
+  // 关键：stencil 必须开启
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, stencil: true });
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.xr.enabled = true;
 
-  // 我们要手动分两次render（先现实+门框，再门内世界），所以关掉autoClear
+  // 我们要两次 render，所以 autoClear 关掉
   renderer.autoClear = false;
 
   document.body.appendChild(renderer.domElement);
 
-  // lights (让GLB好看点)
+  // light for GLB
   scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.0));
   const dir = new THREE.DirectionalLight(0xffffff, 0.7);
   dir.position.set(1, 2, 1);
   scene.add(dir);
 
-  // reticle：只用于“首次放置”
+  // reticle（只用于第一次放置）
   reticle = new THREE.Mesh(
     new THREE.RingGeometry(0.08, 0.12, 32).rotateX(-Math.PI / 2),
     new THREE.MeshBasicMaterial({ color: 0xffffff })
@@ -67,14 +69,14 @@ function init() {
   controller.addEventListener("select", onSelect);
   scene.add(controller);
 
-  // audio listener on camera
+  // audio listener
   listener = new THREE.AudioListener();
   camera.add(listener);
 
-  // load door glb
+  // load door
   loadDoorGLB();
 
-  // AR button
+  // AR button (hit-test)
   document.body.appendChild(
     ARButton.createButton(renderer, {
       requiredFeatures: ["hit-test"],
@@ -83,7 +85,6 @@ function init() {
     })
   );
 
-  // 一个 Reset 按钮（iOS WebXR Viewer也能点）
   createResetButton();
 
   window.addEventListener("resize", onWindowResize);
@@ -105,28 +106,16 @@ function createResetButton() {
   btn.onclick = () => {
     placed = false;
     reticle.visible = false;
-    if (doorGroup) {
-      scene.remove(doorGroup);
-      doorGroup.traverse((o) => {
-        if (o.geometry) o.geometry.dispose?.();
-        if (o.material) {
-          if (Array.isArray(o.material)) o.material.forEach((m) => m.dispose?.());
-          else o.material.dispose?.();
-        }
-      });
-      doorGroup = null;
-      portalMaskMesh = null;
-      portalWorld = null;
-    }
-    // 音乐不强制停止（iOS上stop后再play可能需要手势），你要停也可以：
-    // if (bgm && bgm.isPlaying) bgm.stop();
-    // bgm = null;
+    if (doorGroup) scene.remove(doorGroup);
+    doorGroup = null;
+    portalMaskMesh = null;
+    portalWorld = null;
+    // 音乐不强停，避免 iOS 重新播放需要额外手势
   };
   document.body.appendChild(btn);
 }
 
-// ===== Door loading & normalization =====
-
+// ===== GLB =====
 function loadDoorGLB() {
   const loader = new GLTFLoader();
   loader.load(
@@ -140,11 +129,10 @@ function loadDoorGLB() {
   );
 }
 
-function normalizeDoorModel(model, targetHeightMeters = 2.0) {
+function normalizeDoorModel(model, targetHeightMeters = 2.2) {
   const box = new THREE.Box3().setFromObject(model);
   const size = new THREE.Vector3();
   box.getSize(size);
-
   if (!isFinite(size.y) || size.y <= 0) return;
 
   const scale = targetHeightMeters / size.y;
@@ -154,44 +142,46 @@ function normalizeDoorModel(model, targetHeightMeters = 2.0) {
   const center2 = new THREE.Vector3();
   box2.getCenter(center2);
 
-  // 水平居中到 x/z=0
+  // 居中
   model.position.x += (0 - center2.x);
   model.position.z += (0 - center2.z);
 
-  // 底部贴地：minY -> 0
+  // 落地
   model.position.y += (0 - box2.min.y);
 
-  // 若发现门朝向反了就打开（你测试后告诉我是否反）
+  // 如果你测试发现门总是背对你，再打开这行：
   // model.rotateY(Math.PI);
 }
 
-// ===== Portal building (stencil mask + sky world) =====
-
+// ===== Portal build (stencil) =====
 function buildDoorGroupOnce() {
   doorGroup = new THREE.Group();
 
-  // 1) 门框
+  // layer 0：现实 + 门框 + mask
+  doorGroup.layers.set(0);
+
+  // 门框
   if (doorModel) {
     const clone = doorModel.clone(true);
+    clone.layers.set(0);
     doorGroup.add(clone);
   } else {
-    // 兜底门框
     const frame = new THREE.Mesh(
-      new THREE.BoxGeometry(1, 2, 0.08),
+      new THREE.BoxGeometry(1, 2.2, 0.08),
       new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.7, metalness: 0.1 })
     );
-    frame.position.set(0, 1.0, 0);
+    frame.position.set(0, 1.1, 0);
+    frame.layers.set(0);
     doorGroup.add(frame);
   }
 
-  // 2) 门洞mask：写入 stencil=1，但不显示颜色（不可见）
+  // 门洞 mask：只写 stencil，不写颜色，不写 depth（关键！）
   const maskMat = new THREE.MeshBasicMaterial({
-    colorWrite: false,       // 不渲染颜色（避免你看到黑色矩形）
-    depthWrite: true,
+    colorWrite: false,
+    depthWrite: false,   // ✅ 关键：不写深度，否则门内世界会被挡住
     depthTest: true,
   });
 
-  // stencil 写入配置
   maskMat.stencilWrite = true;
   maskMat.stencilRef = 1;
   maskMat.stencilFunc = THREE.AlwaysStencilFunc;
@@ -201,15 +191,15 @@ function buildDoorGroupOnce() {
     new THREE.PlaneGeometry(PORTAL_OPEN_W, PORTAL_OPEN_H),
     maskMat
   );
-
-  // 门洞中心高度：半高
-  portalMaskMesh.position.set(0, PORTAL_OPEN_H / 2, PORTAL_OFFSET_Z);
-  portalMaskMesh.renderOrder = 1;
+  portalMaskMesh.position.set(0, PORTAL_OPEN_H / 2, PORTAL_MASK_Z);
+  portalMaskMesh.renderOrder = 10;
+  portalMaskMesh.layers.set(0);
   doorGroup.add(portalMaskMesh);
 
-  // 3) 门内世界：放在门后
+  // 门内世界：layer 1，只在 stencil==1 的地方渲染
   portalWorld = buildPortalWorld();
-  portalWorld.renderOrder = 2;
+  portalWorld.layers.set(1);
+  portalWorld.renderOrder = 20;
   doorGroup.add(portalWorld);
 
   scene.add(doorGroup);
@@ -221,28 +211,30 @@ function buildPortalWorld() {
   const panoTex = new THREE.TextureLoader().load(`${BASE}textures/pano.jpg`);
   panoTex.colorSpace = THREE.SRGBColorSpace;
 
-  // 星空球（放在门后方）
-  const sphere = new THREE.Mesh(
-    new THREE.SphereGeometry(5, 64, 48),
-    new THREE.MeshBasicMaterial({ map: panoTex, side: THREE.BackSide })
-  );
-  sphere.position.set(0, 1.2, -3);
+  const sphereMat = new THREE.MeshBasicMaterial({
+    map: panoTex,
+    side: THREE.BackSide,
+  });
 
-  // 关键：让“门内世界”只在 stencil==1 的地方显示
-  // 给 portalWorld 里所有mesh统一配置 stencil test
-  sphere.material.stencilWrite = true;            // 注意：这里不是写入，是“启用测试并保持”
-  sphere.material.stencilRef = 1;
-  sphere.material.stencilFunc = THREE.EqualStencilFunc;
-  sphere.material.stencilFail = THREE.KeepStencilOp;
-  sphere.material.stencilZFail = THREE.KeepStencilOp;
-  sphere.material.stencilZPass = THREE.KeepStencilOp;
+  // stencil test：只在门洞区域显示
+  sphereMat.stencilWrite = true;
+  sphereMat.stencilRef = 1;
+  sphereMat.stencilFunc = THREE.EqualStencilFunc;
+  sphereMat.stencilFail = THREE.KeepStencilOp;
+  sphereMat.stencilZFail = THREE.KeepStencilOp;
+  sphereMat.stencilZPass = THREE.KeepStencilOp;
+
+  const sphere = new THREE.Mesh(new THREE.SphereGeometry(5, 64, 48), sphereMat);
+  sphere.position.set(0, 1.2, PORTAL_WORLD_Z);
+
+  // layer 1
+  sphere.layers.set(1);
 
   group.add(sphere);
   return group;
 }
 
 // ===== Audio =====
-
 function ensureBGMStarted() {
   if (bgm) return;
 
@@ -255,7 +247,7 @@ function ensureBGMStarted() {
       audio.setBuffer(buffer);
       audio.setLoop(true);
       audio.setVolume(0.6);
-      audio.play(); // 必须在用户手势后：我们在 onSelect 里触发
+      audio.play(); // 必须在用户手势内：onSelect
     },
     undefined,
     (err) => console.error("Failed to load bg.flac", err)
@@ -265,42 +257,50 @@ function ensureBGMStarted() {
 }
 
 // ===== Placement =====
-
 function onSelect() {
-  // 放置完成后不再响应“点击放置”（你后续做划动流星时不会被它打断）
   if (placed) return;
-
   if (!reticle.visible) return;
 
-  // 第一次创建门
   if (!doorGroup) buildDoorGroupOnce();
 
-  // 放到命中位置
-  doorGroup.position.setFromMatrixPosition(reticle.matrix);
-  doorGroup.quaternion.setFromRotationMatrix(reticle.matrix);
+  // 取“地面y”来自命中点
+  const hitPos = new THREE.Vector3().setFromMatrixPosition(reticle.matrix);
 
-  // 强制竖直：只保留yaw
-  const euler = new THREE.Euler().setFromQuaternion(doorGroup.quaternion, "YXZ");
-  euler.x = 0;
-  euler.z = 0;
-  doorGroup.quaternion.setFromEuler(euler);
+  // 把门放到“相机正前方固定距离”，但高度贴地（更符合你的需求）
+  const camPos = new THREE.Vector3();
+  camera.getWorldPosition(camPos);
 
-  // 放置完成：锁定
+  const dir = new THREE.Vector3();
+  camera.getWorldDirection(dir);
+
+  // 只取水平朝向（避免抬头低头导致门飞）
+  dir.y = 0;
+  if (dir.lengthSq() < 1e-6) dir.set(0, 0, -1);
+  dir.normalize();
+
+  const targetPos = camPos.clone().add(dir.multiplyScalar(PLACE_DISTANCE_M));
+  targetPos.y = hitPos.y; // 落地
+
+  doorGroup.position.copy(targetPos);
+
+  // 门永远“正对相机”（人类习惯）
+  const lookAtPos = camPos.clone();
+  lookAtPos.y = targetPos.y;
+  doorGroup.lookAt(lookAtPos);
+
+  // 放置完成：锁定 + 隐藏准星 + 播放音乐
   placed = true;
   reticle.visible = false;
-
-  // 放置那一下启动音乐
   ensureBGMStarted();
 }
 
-// ===== Render loop with hit-test =====
-
+// ===== Render loop =====
 function animate() {
   renderer.setAnimationLoop(render);
 }
 
 function render(_, frame) {
-  // 只在未放置时做 hit-test + 显示准星
+  // 未放置才做 hit-test / reticle
   if (frame && !placed) {
     const session = renderer.xr.getSession();
     const referenceSpace = renderer.xr.getReferenceSpace();
@@ -324,11 +324,9 @@ function render(_, frame) {
 
     if (hitTestSource) {
       const hitTestResults = frame.getHitTestResults(hitTestSource);
-
       if (hitTestResults.length > 0) {
         const hit = hitTestResults[0];
         const pose = hit.getPose(referenceSpace);
-
         reticle.visible = true;
         reticle.matrix.fromArray(pose.transform.matrix);
       } else {
@@ -337,13 +335,20 @@ function render(_, frame) {
     }
   }
 
-  // 两阶段渲染：
-  // A) 先画“现实场景 + 门框 + 写入stencil的门洞mask”
-  // B) 再画“门内世界”，但它只会出现在门洞区域（stencil==1）
+  // 两次渲染：先 layer0（门框+mask写stencil），再 layer1（门内世界stencil==1）
   renderer.clear();
   renderer.clearStencil();
 
+  // Pass A: 现实 + 门框 + mask
+  camera.layers.set(0);
   renderer.render(scene, camera);
+
+  // Pass B: 门内世界（只在门洞显示）
+  camera.layers.set(1);
+  renderer.render(scene, camera);
+
+  // 还原
+  camera.layers.set(0);
 }
 
 function onWindowResize() {
