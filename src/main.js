@@ -31,6 +31,9 @@ const LAYER_MASK = 1;   // 门洞遮罩（只写 stencil）
 const LAYER_PORTAL = 2; // 门洞内星空窗口
 const LAYER_INSIDE = 3; // 门内全屏星空
 
+const _tmpCamPos = new THREE.Vector3();
+const _insideScene = new THREE.Scene();
+
 let scene, renderer;
 let baseCamera, controller;
 let hitTestSource = null;
@@ -318,6 +321,36 @@ function makeArchMaskGeometry(width, height) {
   return new THREE.ShapeGeometry(shape, 48);
 }
 
+function alignPortalPlane() {
+  // portalBackDirWorld：门后方向（已经在 initPortalBackDirection() 里锁定/翻转过）
+  const back = portalBackDirWorld.clone().normalize();
+
+  // 门洞平面法线：我们让 mask “面朝相机侧”更稳定
+  // mask 默认法线是 +Z（ShapeGeometry 在 XY 平面）
+  // 这里把 mask 的 +Z 旋转到 “-back”（门前侧）
+  const targetNormal = back.clone().negate();
+
+  const q = new THREE.Quaternion().setFromUnitVectors(
+    new THREE.Vector3(0, 0, 1), // mask 初始法线 +Z
+    targetNormal
+  );
+
+  // 让 mask 使用这个姿态（在 doorGroup 局部）
+  portalMaskMesh.quaternion.copy(q);
+
+  // 把 mask 轻微往“门前”挪一点，避免和门框共面产生细线/闪烁
+  // 这里沿 targetNormal 推一点（朝门前）
+  portalMaskMesh.position.set(0, holeCenterY, 0);
+  portalMaskMesh.position.add(targetNormal.clone().multiplyScalar(0.02));
+
+  // 门洞星空内容：强制放到“门后”一定距离
+  // 这样它永远不可能跑到门前把现实盖住
+  if (portalContentGroup) {
+    portalContentGroup.position.set(0, 0, 0);
+    portalContentGroup.position.add(back.clone().multiplyScalar(6.5));
+  }
+}
+
 // ===== Build =====
 function buildOnce() {
   doorGroup = new THREE.Group();
@@ -415,6 +448,19 @@ function buildOnce() {
   insideStars.layers.set(LAYER_INSIDE);
   insideGroup.add(insideStars);
 
+  insideGroup.traverse((o) => {
+  o.frustumCulled = false; // ✅ 防止“进门后突然消失”
+  if (o.material) {
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    mats.forEach((m) => {
+      m.depthTest = false;   // ✅ 覆盖现实画面（门内全屏）
+      m.depthWrite = false;
+      m.transparent = true;  // 可有可无，但更稳
+      m.opacity = 1.0;
+    });
+  }
+});
+
   for (let i = 0; i < INSIDE_NEBULA_COUNT; i++) {
     const neb = makeNebulaBillboard(20 + i * 0.57, 6.4 + Math.random() * 4.2);
     neb.position.set(
@@ -461,6 +507,7 @@ function onSelect() {
   doorGroup.rotateY(DOOR_YAW_OFFSET);
 
   initPortalBackDirection(xrCam);
+  alignPortalPlane();
 
   // 强制门外开始
   isInside = false;
@@ -566,16 +613,21 @@ function render(_, frame) {
 
   // 3) 如果在门内：全屏星空（覆盖现实）
   if (isInside && insideGroup) {
-    const insideScene = new THREE.Scene();
-    insideScene.add(insideGroup);
+  // ✅ 让门内世界永远“包裹相机”
+  xrCam.getWorldPosition(_tmpCamPos);
+  insideGroup.position.copy(_tmpCamPos);
 
-    // 跟随相机，保证全屏包裹
-    const camPos = new THREE.Vector3();
-    xrCam.getWorldPosition(camPos);
-    insideGroup.position.copy(camPos);
+  // ✅ 可选：让星空跟随头部旋转（更沉浸；不想跟随可注释掉）
+  insideGroup.quaternion.copy(xrCam.quaternion);
 
-    xrCam.layers.set(LAYER_INSIDE);
-    renderer.render(insideScene, xrCam);
+  // ✅ 单独场景渲染 inside（只画 inside layer）
+  _insideScene.add(insideGroup);
+
+  xrCam.layers.set(LAYER_INSIDE);
+  renderer.render(_insideScene, xrCam);
+
+  // ✅ 清理：避免重复 add
+  _insideScene.remove(insideGroup);
   }
 }
 
