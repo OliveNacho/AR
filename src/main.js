@@ -8,8 +8,9 @@ const BASE = import.meta.env.BASE_URL;
 const DOOR_HEIGHT = 2.1;
 const DOOR_DISTANCE = 1.5;
 const SKY_RADIUS = 50;
-const PREVIEW_RADIUS = 8;
-const STAR_COUNT = 6000;
+const PREVIEW_RADIUS = 12;
+const STAR_COUNT = 12000;
+const PREVIEW_STAR_COUNT = 3000;
 
 // ============ 全局变量 ============
 let renderer, scene, camera;
@@ -18,24 +19,27 @@ let doorGroup = null;
 let portalMask = null;
 let previewSphere = null;
 let previewStars = null;
-let previewGlow = null;
 let skySphere = null;
 let skyStars = null;
-let skyNebula = null;
 let placed = false;
 let isInside = false;
 
-// 过渡效果
-let transitionProgress = 0; // 0=门外, 1=门内
+// 过渡
+let transitionProgress = 0;
 let transitionTarget = 0;
-let fadeOverlay = null;
 
-// 门平面参数
+// 门平面
 let doorPlaneNormal = new THREE.Vector3();
 let doorPlanePoint = new THREE.Vector3();
 let lastSide = 1;
 
 const _camPos = new THREE.Vector3();
+
+// 星星动画数据
+let starOriginalPositions = null;
+let starPhases = null;
+let previewStarOriginalPositions = null;
+let previewStarPhases = null;
 
 // ============ 初始化 ============
 init();
@@ -63,10 +67,6 @@ function init() {
   reticle.visible = false;
   scene.add(reticle);
 
-  // 过渡遮罩（用于进出门淡入淡出）
-  createFadeOverlay();
-
-  // 控制器
   const controller = renderer.xr.getController(0);
   controller.addEventListener("select", onSelect);
   scene.add(controller);
@@ -75,7 +75,6 @@ function init() {
     ARButton.createButton(renderer, { requiredFeatures: ["hit-test"] })
   );
 
-  // Reset按钮
   const btn = document.createElement("button");
   btn.textContent = "Reset";
   btn.style.cssText = "position:fixed;top:10px;left:10px;z-index:9999;padding:8px 12px;background:rgba(0,0,0,0.5);color:#fff;border:none;border-radius:6px;";
@@ -91,64 +90,54 @@ function init() {
   renderer.setAnimationLoop(render);
 }
 
-// ============ 过渡遮罩 ============
-function createFadeOverlay() {
-  fadeOverlay = document.createElement("div");
-  fadeOverlay.style.cssText = `
-    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-    background: radial-gradient(ellipse at center, rgba(20,10,40,0) 0%, rgba(10,5,30,0.9) 100%);
-    pointer-events: none; opacity: 0; z-index: 999;
-    transition: opacity 0.3s ease;
-  `;
-  document.body.appendChild(fadeOverlay);
-}
-
-// ============ 创建星星纹理 ============
-function createStarTexture() {
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = 64;
-  const ctx = canvas.getContext("2d");
-  
-  const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-  gradient.addColorStop(0, "rgba(255,255,255,1)");
-  gradient.addColorStop(0.1, "rgba(255,255,255,0.8)");
-  gradient.addColorStop(0.4, "rgba(200,220,255,0.3)");
-  gradient.addColorStop(1, "rgba(100,150,255,0)");
-  
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, 64, 64);
-  
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
-// ============ 创建星星粒子 ============
-function createStars(count, radius, size = 0.15) {
+// ============ 创建星星（带闪烁和位移数据）============
+function createStars(count, radius, size = 0.12) {
   const positions = new Float32Array(count * 3);
   const colors = new Float32Array(count * 3);
   const sizes = new Float32Array(count);
+  const phases = new Float32Array(count * 4); // 相位数据：闪烁相位、闪烁速度、位移相位X、位移相位Z
   
   for (let i = 0; i < count; i++) {
     const theta = Math.random() * Math.PI * 2;
     const phi = Math.acos(2 * Math.random() - 1);
-    const r = radius * (0.6 + 0.4 * Math.random());
+    const r = radius * (0.5 + 0.5 * Math.random());
     
     positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
     positions[i * 3 + 1] = r * Math.cos(phi);
     positions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
     
-    // 随机颜色：白/蓝/黄
+    // 颜色分布：主要白色，少量蓝/黄/红
     const colorType = Math.random();
-    if (colorType < 0.6) {
-      colors[i * 3] = 1; colors[i * 3 + 1] = 1; colors[i * 3 + 2] = 1;
-    } else if (colorType < 0.8) {
-      colors[i * 3] = 0.7; colors[i * 3 + 1] = 0.85; colors[i * 3 + 2] = 1;
+    if (colorType < 0.65) {
+      // 白色
+      colors[i * 3] = 0.95 + Math.random() * 0.05;
+      colors[i * 3 + 1] = 0.95 + Math.random() * 0.05;
+      colors[i * 3 + 2] = 0.95 + Math.random() * 0.05;
+    } else if (colorType < 0.80) {
+      // 淡蓝
+      colors[i * 3] = 0.7 + Math.random() * 0.2;
+      colors[i * 3 + 1] = 0.8 + Math.random() * 0.15;
+      colors[i * 3 + 2] = 1;
+    } else if (colorType < 0.92) {
+      // 淡黄
+      colors[i * 3] = 1;
+      colors[i * 3 + 1] = 0.9 + Math.random() * 0.1;
+      colors[i * 3 + 2] = 0.6 + Math.random() * 0.2;
     } else {
-      colors[i * 3] = 1; colors[i * 3 + 1] = 0.9; colors[i * 3 + 2] = 0.6;
+      // 淡红/橙
+      colors[i * 3] = 1;
+      colors[i * 3 + 1] = 0.6 + Math.random() * 0.3;
+      colors[i * 3 + 2] = 0.5 + Math.random() * 0.2;
     }
     
-    sizes[i] = size * (0.5 + Math.random());
+    // 大小随机
+    sizes[i] = size * (0.3 + Math.random() * 0.7);
+    
+    // 动画相位
+    phases[i * 4] = Math.random() * Math.PI * 2;     // 闪烁相位
+    phases[i * 4 + 1] = 0.5 + Math.random() * 2.5;   // 闪烁速度
+    phases[i * 4 + 2] = Math.random() * Math.PI * 2; // 位移相位X
+    phases[i * 4 + 3] = Math.random() * Math.PI * 2; // 位移相位Z
   }
   
   const geo = new THREE.BufferGeometry();
@@ -157,10 +146,10 @@ function createStars(count, radius, size = 0.15) {
   geo.setAttribute("size", new THREE.BufferAttribute(sizes, 1));
   
   const mat = new THREE.PointsMaterial({
-    map: createStarTexture(),
     size,
     vertexColors: true,
     transparent: true,
+    opacity: 0.9,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
     sizeAttenuation: true,
@@ -168,114 +157,44 @@ function createStars(count, radius, size = 0.15) {
   
   const points = new THREE.Points(geo, mat);
   points.frustumCulled = false;
-  return points;
+  
+  return { points, originalPositions: positions.slice(), phases };
 }
 
-// ============ 创建薄雾/星云 ============
-function createNebula(count, radius) {
-  const group = new THREE.Group();
+// ============ 更新星星动画 ============
+function updateStars(points, originalPositions, phases, time, driftAmount = 0.15) {
+  if (!points || !originalPositions || !phases) return;
+  
+  const positions = points.geometry.attributes.position.array;
+  const colors = points.geometry.attributes.color.array;
+  const count = positions.length / 3;
   
   for (let i = 0; i < count; i++) {
-    const canvas = document.createElement("canvas");
-    canvas.width = canvas.height = 256;
-    const ctx = canvas.getContext("2d");
+    const blinkPhase = phases[i * 4];
+    const blinkSpeed = phases[i * 4 + 1];
+    const driftPhaseX = phases[i * 4 + 2];
+    const driftPhaseZ = phases[i * 4 + 3];
     
-    // 随机色相
-    const hue = Math.random() * 360;
+    // 闪烁：调整亮度
+    const blink = 0.6 + 0.4 * Math.sin(time * blinkSpeed + blinkPhase);
+    const baseBrightness = 0.7 + 0.3 * blink;
     
-    for (let j = 0; j < 5; j++) {
-      const x = 128 + (Math.random() - 0.5) * 100;
-      const y = 128 + (Math.random() - 0.5) * 100;
-      const r = 60 + Math.random() * 60;
-      
-      const gradient = ctx.createRadialGradient(x, y, 0, x, y, r);
-      gradient.addColorStop(0, `hsla(${hue + j * 20}, 60%, 50%, 0.15)`);
-      gradient.addColorStop(0.5, `hsla(${hue + j * 20}, 50%, 40%, 0.05)`);
-      gradient.addColorStop(1, "transparent");
-      
-      ctx.fillStyle = gradient;
-      ctx.fillRect(0, 0, 256, 256);
-    }
+    // 微位移
+    const driftX = Math.sin(time * 0.3 + driftPhaseX) * driftAmount;
+    const driftZ = Math.cos(time * 0.25 + driftPhaseZ) * driftAmount;
     
-    const tex = new THREE.CanvasTexture(canvas);
-    const mat = new THREE.MeshBasicMaterial({
-      map: tex,
-      transparent: true,
-      opacity: 0.4,
-      blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-    });
+    positions[i * 3] = originalPositions[i * 3] + driftX;
+    positions[i * 3 + 2] = originalPositions[i * 3 + 2] + driftZ;
     
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(15, 15), mat);
-    mesh.position.set(
-      (Math.random() - 0.5) * radius,
-      (Math.random() - 0.5) * radius * 0.6,
-      (Math.random() - 0.5) * radius
-    );
-    mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
-    mesh.frustumCulled = false;
-    group.add(mesh);
+    // 原始颜色 * 亮度
+    // 注意：这里我们不存储原始颜色，所以用简化方式
+    colors[i * 3] = Math.min(1, colors[i * 3] * baseBrightness / 0.85);
+    colors[i * 3 + 1] = Math.min(1, colors[i * 3 + 1] * baseBrightness / 0.85);
+    colors[i * 3 + 2] = Math.min(1, colors[i * 3 + 2] * baseBrightness / 0.85);
   }
   
-  return group;
-}
-
-// ============ 创建门框边缘辉光 ============
-function createPortalGlow() {
-  const group = new THREE.Group();
-  
-  // 拱形辉光路径
-  const shape = new THREE.Shape();
-  const w = 1.5, h = 1.8, archR = 0.75;
-  shape.moveTo(-w/2, 0);
-  shape.lineTo(-w/2, h - archR);
-  shape.absarc(0, h - archR, archR, Math.PI, 0, true);
-  shape.lineTo(w/2, 0);
-  
-  // 内发光（多层叠加）
-  for (let i = 0; i < 4; i++) {
-    const glowMat = new THREE.MeshBasicMaterial({
-      color: new THREE.Color().setHSL(0.7 - i * 0.05, 0.8, 0.5 + i * 0.1),
-      transparent: true,
-      opacity: 0.15 - i * 0.03,
-      side: THREE.DoubleSide,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    });
-    
-    const geo = new THREE.ShapeGeometry(shape, 32);
-    const mesh = new THREE.Mesh(geo, glowMat);
-    mesh.position.z = -0.02 - i * 0.01;
-    mesh.scale.setScalar(1 + i * 0.08);
-    mesh.frustumCulled = false;
-    group.add(mesh);
-  }
-  
-  // 边缘光线
-  const edgeGeo = new THREE.TubeGeometry(
-    new THREE.CatmullRomCurve3([
-      new THREE.Vector3(-w/2, 0, 0),
-      new THREE.Vector3(-w/2, h - archR, 0),
-      new THREE.Vector3(-archR * 0.7, h - archR + archR * 0.7, 0),
-      new THREE.Vector3(0, h, 0),
-      new THREE.Vector3(archR * 0.7, h - archR + archR * 0.7, 0),
-      new THREE.Vector3(w/2, h - archR, 0),
-      new THREE.Vector3(w/2, 0, 0),
-    ]),
-    64, 0.03, 8, false
-  );
-  const edgeMat = new THREE.MeshBasicMaterial({
-    color: 0x8080ff,
-    transparent: true,
-    opacity: 0.6,
-    blending: THREE.AdditiveBlending,
-  });
-  const edge = new THREE.Mesh(edgeGeo, edgeMat);
-  edge.position.z = -0.01;
-  group.add(edge);
-  
-  return group;
+  points.geometry.attributes.position.needsUpdate = true;
+  points.geometry.attributes.color.needsUpdate = true;
 }
 
 // ============ 构建场景 ============
@@ -287,7 +206,6 @@ function build() {
   doorGroup = new THREE.Group();
   scene.add(doorGroup);
 
-  // 加载门模型
   new GLTFLoader().load(
     `${BASE}models/doorframe.glb`,
     (gltf) => {
@@ -303,21 +221,20 @@ function build() {
     },
     undefined,
     () => {
-      // 备用门框
       const mat = new THREE.MeshBasicMaterial({ color: 0x222222 });
       const left = new THREE.Mesh(new THREE.BoxGeometry(0.1, DOOR_HEIGHT, 0.1), mat);
-      left.position.set(-0.65, DOOR_HEIGHT / 2, 0);
+      left.position.set(-0.55, DOOR_HEIGHT / 2, 0);
       const right = new THREE.Mesh(new THREE.BoxGeometry(0.1, DOOR_HEIGHT, 0.1), mat);
-      right.position.set(0.65, DOOR_HEIGHT / 2, 0);
-      const top = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.1, 0.1), mat);
+      right.position.set(0.55, DOOR_HEIGHT / 2, 0);
+      const top = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.1, 0.1), mat);
       top.position.set(0, DOOR_HEIGHT, 0);
       doorGroup.add(left, right, top);
     }
   );
 
-  // === 门洞 stencil 遮罩 ===
+  // === 门洞 stencil 遮罩（缩小尺寸）===
   const maskShape = new THREE.Shape();
-  const mw = 1.4, mh = 1.85, archR = 0.7;
+  const mw = 1.05, mh = 1.65, archR = 0.52; // 缩小尺寸
   maskShape.moveTo(-mw/2, 0);
   maskShape.lineTo(-mw/2, mh - archR);
   maskShape.absarc(0, mh - archR, archR, Math.PI, 0, true);
@@ -334,16 +251,11 @@ function build() {
   maskMat.stencilZPass = THREE.ReplaceStencilOp;
 
   portalMask = new THREE.Mesh(new THREE.ShapeGeometry(maskShape, 32), maskMat);
-  portalMask.position.set(0, 0.02, -0.02);
+  portalMask.position.set(0, 0.02, -0.03);
   portalMask.renderOrder = 0;
   doorGroup.add(portalMask);
 
-  // === 门框边缘辉光 ===
-  previewGlow = createPortalGlow();
-  previewGlow.position.y = 0.02;
-  doorGroup.add(previewGlow);
-
-  // === 门外预览：天球（受stencil限制）===
+  // === 门外预览天球（使用全景图，正常颜色）===
   const previewMat = new THREE.MeshBasicMaterial({
     map: panoTexture,
     side: THREE.BackSide,
@@ -361,15 +273,19 @@ function build() {
   previewSphere.frustumCulled = false;
   doorGroup.add(previewSphere);
 
-  // === 门外预览：星星（受stencil限制）===
-  previewStars = createStars(1500, PREVIEW_RADIUS * 0.9, 0.08);
+  // === 门外预览星星 ===
+  const previewStarData = createStars(PREVIEW_STAR_COUNT, PREVIEW_RADIUS * 0.85, 0.06);
+  previewStars = previewStarData.points;
+  previewStarOriginalPositions = previewStarData.originalPositions;
+  previewStarPhases = previewStarData.phases;
+  
   previewStars.material.stencilWrite = true;
   previewStars.material.stencilRef = 1;
   previewStars.material.stencilFunc = THREE.EqualStencilFunc;
   previewStars.renderOrder = 2;
   doorGroup.add(previewStars);
 
-  // === 门内世界：天球 ===
+  // === 门内世界天球 ===
   skySphere = new THREE.Mesh(
     new THREE.SphereGeometry(SKY_RADIUS, 64, 32),
     new THREE.MeshBasicMaterial({
@@ -382,17 +298,15 @@ function build() {
   skySphere.renderOrder = -100;
   scene.add(skySphere);
 
-  // === 门内世界：星星 ===
-  skyStars = createStars(STAR_COUNT, SKY_RADIUS * 0.85, 0.2);
+  // === 门内世界星星（高密度）===
+  const skyStarData = createStars(STAR_COUNT, SKY_RADIUS * 0.8, 0.18);
+  skyStars = skyStarData.points;
+  starOriginalPositions = skyStarData.originalPositions;
+  starPhases = skyStarData.phases;
+  
   skyStars.visible = false;
   skyStars.renderOrder = -99;
   scene.add(skyStars);
-
-  // === 门内世界：星云/薄雾 ===
-  skyNebula = createNebula(10, SKY_RADIUS * 0.5);
-  skyNebula.visible = false;
-  skyNebula.renderOrder = -98;
-  scene.add(skyNebula);
 }
 
 // ============ 放置门 ============
@@ -410,29 +324,27 @@ function onSelect() {
   doorGroup.position.y = hitPos.y;
   doorGroup.lookAt(_camPos.x, doorGroup.position.y, _camPos.z);
 
-  // 预览球放在门后一点
-  previewSphere.position.set(0, 1, -PREVIEW_RADIUS * 0.5);
-  previewStars.position.set(0, 1, -PREVIEW_RADIUS * 0.5);
+  // 预览球定位在门后
+  previewSphere.position.set(0, 1, -PREVIEW_RADIUS * 0.4);
+  previewStars.position.set(0, 1, -PREVIEW_RADIUS * 0.4);
 
-  // 门平面
   doorPlanePoint.copy(doorGroup.position);
   doorPlaneNormal.set(0, 0, 1).applyQuaternion(doorGroup.quaternion);
 
   lastSide = getSide(xrCam);
   isInside = false;
   transitionTarget = 0;
+  transitionProgress = 0;
   placed = true;
   reticle.visible = false;
 }
 
-// ============ 判断相机位置 ============
 function getSide(xrCam) {
   xrCam.getWorldPosition(_camPos);
   const toCamera = _camPos.clone().sub(doorPlanePoint);
   return doorPlaneNormal.dot(toCamera) >= 0 ? 1 : -1;
 }
 
-// ============ 检测穿越 ============
 function checkCrossing(xrCam) {
   const currentSide = getSide(xrCam);
   
@@ -447,32 +359,32 @@ function checkCrossing(xrCam) {
   lastSide = currentSide;
 }
 
-// ============ 更新过渡效果 ============
+// ============ 平滑过渡 ============
 function updateTransition(delta) {
-  const speed = 4.0; // 过渡速度
+  // 使用 lerp 实现更平滑的过渡
+  const speed = 3.0;
+  transitionProgress += (transitionTarget - transitionProgress) * delta * speed;
   
-  if (transitionProgress < transitionTarget) {
-    transitionProgress = Math.min(transitionProgress + delta * speed, 1);
-  } else if (transitionProgress > transitionTarget) {
-    transitionProgress = Math.max(transitionProgress - delta * speed, 0);
+  // 钳制
+  if (Math.abs(transitionProgress - transitionTarget) < 0.01) {
+    transitionProgress = transitionTarget;
   }
   
-  // 过渡时显示遮罩（只在中间最不透明）
-  const fadeAmount = Math.sin(transitionProgress * Math.PI) * 0.6;
-  fadeOverlay.style.opacity = fadeAmount;
-  
-  // 根据过渡进度控制可见性
   const entering = transitionProgress > 0.5;
   skySphere.visible = entering;
   skyStars.visible = entering;
-  skyNebula.visible = entering;
   
-  // 门外预览在完全进入后隐藏
-  const showPreview = transitionProgress < 0.9;
-  previewSphere.visible = showPreview;
-  previewStars.visible = showPreview;
-  portalMask.visible = showPreview;
-  previewGlow.visible = showPreview;
+  // 门外预览在进入后隐藏
+  const showPreview = transitionProgress < 0.8;
+  if (previewSphere) previewSphere.visible = showPreview;
+  if (previewStars) previewStars.visible = showPreview;
+  if (portalMask) portalMask.visible = showPreview;
+  
+  // 调整透明度实现淡入淡出
+  if (skySphere && skySphere.material) {
+    skySphere.material.opacity = Math.min(1, transitionProgress * 2);
+    skySphere.material.transparent = true;
+  }
 }
 
 // ============ 渲染 ============
@@ -481,6 +393,7 @@ let lastTime = performance.now();
 function render(_, frame) {
   const now = performance.now();
   const delta = (now - lastTime) / 1000;
+  const time = now / 1000;
   lastTime = now;
 
   const session = renderer.xr.getSession();
@@ -507,7 +420,6 @@ function render(_, frame) {
     }
   }
 
-  // 更新状态
   if (placed) {
     checkCrossing(xrCam);
     updateTransition(delta);
@@ -516,44 +428,33 @@ function render(_, frame) {
     xrCam.getWorldPosition(_camPos);
     skySphere.position.copy(_camPos);
     skyStars.position.copy(_camPos);
-    skyNebula.position.copy(_camPos);
     
-    // 星星缓慢旋转
+    // 更新星星动画
     if (skyStars.visible) {
-      skyStars.rotation.y += delta * 0.01;
+      updateStars(skyStars, starOriginalPositions, starPhases, time, 0.2);
     }
-    if (previewStars.visible) {
-      previewStars.rotation.y += delta * 0.02;
+    if (previewStars && previewStars.visible) {
+      updateStars(previewStars, previewStarOriginalPositions, previewStarPhases, time, 0.1);
     }
   }
 
-  // === 渲染 ===
   renderer.clear(true, true, true);
-  
-  if (!placed || transitionProgress < 0.95) {
-    // 门外或过渡中：渲染门框 + stencil预览
-    renderer.render(scene, xrCam);
-  }
-  
-  if (transitionProgress > 0.05) {
-    // 进入中或门内：渲染沉浸世界
-    renderer.clearDepth();
-    renderer.render(scene, xrCam);
-  }
+  renderer.render(scene, xrCam);
 }
 
-// ============ 重置 ============
 function reset() {
   placed = false;
   isInside = false;
   transitionProgress = 0;
   transitionTarget = 0;
-  fadeOverlay.style.opacity = 0;
   
   if (doorGroup) { scene.remove(doorGroup); doorGroup = null; }
-  if (skySphere) { skySphere.visible = false; }
-  if (skyStars) { skyStars.visible = false; }
-  if (skyNebula) { skyNebula.visible = false; }
+  if (skySphere) skySphere.visible = false;
+  if (skyStars) skyStars.visible = false;
+  
+  previewSphere = null;
+  previewStars = null;
+  portalMask = null;
   
   reticle.visible = false;
 }
