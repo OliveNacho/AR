@@ -8,25 +8,31 @@ const BASE = import.meta.env.BASE_URL;
 const DOOR_HEIGHT = 2.1;
 const DOOR_DISTANCE = 1.5;
 const SKY_RADIUS = 50;
-const STAR_COUNT = 8000;
-const FLOATING_STAR_COUNT = 500;
-const AMBIENT_STAR_COUNT = 1500;
+const PREVIEW_RADIUS = 12;
+const STAR_COUNT = 6000;
+const FLOATING_STAR_COUNT = 2000;
+const PREVIEW_STAR_COUNT = 8000;
 
 // ============ 全局变量 ============
 let renderer, scene, camera;
 let reticle, hitTestSource = null;
 let doorGroup = null;
 let portalMask = null;
+let previewSphere = null;
+let previewStars = null;
 let skySphere = null;
 let skyStars = null;
 let floatingStars = null;
-let ambientStars = null;
+let brightStars = null;
 let placed = false;
 let isInside = false;
 
 // 音频
 let bgAudio = null;
 let audioStarted = false;
+
+// 过渡
+let transitionValue = 0;
 
 // 门平面
 let doorPlaneNormal = new THREE.Vector3();
@@ -38,7 +44,8 @@ const _camPos = new THREE.Vector3();
 // 星星数据
 let starData = null;
 let floatingStarData = null;
-let ambientStarData = null;
+let brightStarData = null;
+let previewStarData = null;
 
 // 流星
 let meteors = [];
@@ -48,8 +55,7 @@ let isTouching = false;
 // 纹理
 let starTexture = null;
 let brightStarTexture = null;
-let meteorTexture = null;
-let panoTexture = null;
+let meteorHeadTexture = null;
 
 // ============ 初始化 ============
 init();
@@ -68,14 +74,10 @@ function init() {
 
   scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
 
-  // 预加载纹理
-  starTexture = createStarTexture();
+  // 创建纹理
+  starTexture = createCleanStarTexture();
   brightStarTexture = createBrightStarTexture();
-  meteorTexture = createMeteorTexture();
-  
-  const textureLoader = new THREE.TextureLoader();
-  panoTexture = textureLoader.load(`${BASE}textures/pano.jpg`);
-  panoTexture.colorSpace = THREE.SRGBColorSpace;
+  meteorHeadTexture = createMeteorHeadTexture();
 
   reticle = new THREE.Mesh(
     new THREE.RingGeometry(0.08, 0.11, 32).rotateX(-Math.PI / 2),
@@ -152,17 +154,21 @@ function playAudio() {
   }
 }
 
-// ============ 普通星星纹理 ============
-function createStarTexture() {
+// ============ 干净的普通星星纹理 ============
+function createCleanStarTexture() {
   const size = 128;
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext("2d");
   
+  // 完全透明背景
   ctx.clearRect(0, 0, size, size);
   
   const cx = size / 2;
-  const gradient = ctx.createRadialGradient(cx, cx, 0, cx, cx, size / 2);
+  const cy = size / 2;
+  
+  // 纯白色柔和圆形光点
+  const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, size / 2);
   gradient.addColorStop(0, "rgba(255, 255, 255, 1)");
   gradient.addColorStop(0.1, "rgba(255, 255, 255, 0.85)");
   gradient.addColorStop(0.25, "rgba(255, 255, 255, 0.5)");
@@ -172,7 +178,7 @@ function createStarTexture() {
   
   ctx.fillStyle = gradient;
   ctx.beginPath();
-  ctx.arc(cx, cx, size / 2, 0, Math.PI * 2);
+  ctx.arc(cx, cy, size / 2, 0, Math.PI * 2);
   ctx.fill();
   
   const tex = new THREE.CanvasTexture(canvas);
@@ -180,7 +186,7 @@ function createStarTexture() {
   return tex;
 }
 
-// ============ 亮星纹理（十字星芒）============
+// ============ 亮星纹理（带干净的十字星芒）============
 function createBrightStarTexture() {
   const size = 256;
   const canvas = document.createElement("canvas");
@@ -190,60 +196,80 @@ function createBrightStarTexture() {
   ctx.clearRect(0, 0, size, size);
   
   const cx = size / 2;
+  const cy = size / 2;
   
-  // 核心
-  const coreGrad = ctx.createRadialGradient(cx, cx, 0, cx, cx, size * 0.2);
+  // 核心光晕
+  const coreGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, size * 0.15);
   coreGrad.addColorStop(0, "rgba(255, 255, 255, 1)");
-  coreGrad.addColorStop(0.3, "rgba(255, 255, 255, 0.9)");
-  coreGrad.addColorStop(0.6, "rgba(255, 255, 255, 0.4)");
+  coreGrad.addColorStop(0.5, "rgba(255, 255, 255, 0.8)");
   coreGrad.addColorStop(1, "rgba(255, 255, 255, 0)");
-  
   ctx.fillStyle = coreGrad;
   ctx.beginPath();
-  ctx.arc(cx, cx, size * 0.2, 0, Math.PI * 2);
+  ctx.arc(cx, cy, size * 0.15, 0, Math.PI * 2);
   ctx.fill();
   
-  // 外层
-  const outerGrad = ctx.createRadialGradient(cx, cx, 0, cx, cx, size * 0.45);
-  outerGrad.addColorStop(0, "rgba(255, 255, 255, 0.5)");
-  outerGrad.addColorStop(0.3, "rgba(255, 255, 255, 0.15)");
-  outerGrad.addColorStop(0.6, "rgba(255, 255, 255, 0.03)");
+  // 外层光晕
+  const outerGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, size * 0.4);
+  outerGrad.addColorStop(0, "rgba(255, 255, 255, 0.6)");
+  outerGrad.addColorStop(0.3, "rgba(255, 255, 255, 0.2)");
+  outerGrad.addColorStop(0.6, "rgba(255, 255, 255, 0.05)");
   outerGrad.addColorStop(1, "rgba(255, 255, 255, 0)");
-  
   ctx.fillStyle = outerGrad;
   ctx.beginPath();
-  ctx.arc(cx, cx, size * 0.45, 0, Math.PI * 2);
+  ctx.arc(cx, cy, size * 0.4, 0, Math.PI * 2);
   ctx.fill();
   
-  // 十字星芒
+  // 十字星芒（纯白色，干净渐变）
   ctx.globalCompositeOperation = "lighter";
   
-  const drawSpike = (angle, length, width) => {
+  const spikeLength = size * 0.45;
+  const spikeWidth = 3;
+  
+  for (let angle = 0; angle < 4; angle++) {
     ctx.save();
-    ctx.translate(cx, cx);
-    ctx.rotate(angle);
+    ctx.translate(cx, cy);
+    ctx.rotate((angle * Math.PI) / 2);
     
-    const spikeGrad = ctx.createLinearGradient(0, 0, length, 0);
+    // 主星芒
+    const spikeGrad = ctx.createLinearGradient(0, 0, spikeLength, 0);
     spikeGrad.addColorStop(0, "rgba(255, 255, 255, 0.9)");
-    spikeGrad.addColorStop(0.1, "rgba(255, 255, 255, 0.4)");
-    spikeGrad.addColorStop(0.4, "rgba(255, 255, 255, 0.1)");
+    spikeGrad.addColorStop(0.1, "rgba(255, 255, 255, 0.5)");
+    spikeGrad.addColorStop(0.4, "rgba(255, 255, 255, 0.15)");
+    spikeGrad.addColorStop(0.7, "rgba(255, 255, 255, 0.03)");
     spikeGrad.addColorStop(1, "rgba(255, 255, 255, 0)");
     
     ctx.fillStyle = spikeGrad;
     ctx.beginPath();
-    ctx.moveTo(0, -width);
-    ctx.lineTo(length, 0);
-    ctx.lineTo(0, width);
+    ctx.moveTo(0, -spikeWidth);
+    ctx.lineTo(spikeLength, 0);
+    ctx.lineTo(0, spikeWidth);
     ctx.closePath();
     ctx.fill();
+    
     ctx.restore();
-  };
+  }
   
-  const spikeLength = size * 0.42;
-  const spikeWidth = size * 0.012;
-  for (let i = 0; i < 4; i++) {
-    drawSpike((i * Math.PI) / 2, spikeLength, spikeWidth);
-    drawSpike((i * Math.PI) / 2 + Math.PI, spikeLength, spikeWidth);
+  // 45度次级星芒（更细更短）
+  for (let angle = 0; angle < 4; angle++) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate((angle * Math.PI) / 2 + Math.PI / 4);
+    
+    const shortLength = spikeLength * 0.5;
+    const shortGrad = ctx.createLinearGradient(0, 0, shortLength, 0);
+    shortGrad.addColorStop(0, "rgba(255, 255, 255, 0.4)");
+    shortGrad.addColorStop(0.3, "rgba(255, 255, 255, 0.1)");
+    shortGrad.addColorStop(1, "rgba(255, 255, 255, 0)");
+    
+    ctx.fillStyle = shortGrad;
+    ctx.beginPath();
+    ctx.moveTo(0, -1.5);
+    ctx.lineTo(shortLength, 0);
+    ctx.lineTo(0, 1.5);
+    ctx.closePath();
+    ctx.fill();
+    
+    ctx.restore();
   }
   
   const tex = new THREE.CanvasTexture(canvas);
@@ -251,8 +277,8 @@ function createBrightStarTexture() {
   return tex;
 }
 
-// ============ 流星纹理 ============
-function createMeteorTexture() {
+// ============ 流星头部纹理（椭圆拉长光斑）============
+function createMeteorHeadTexture() {
   const width = 128;
   const height = 256;
   const canvas = document.createElement("canvas");
@@ -263,34 +289,48 @@ function createMeteorTexture() {
   ctx.clearRect(0, 0, width, height);
   
   const cx = width / 2;
-  const cy = height * 0.3;
+  const cy = height * 0.3; // 偏上
   
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.scale(1, 2.5);
-  
-  const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, width * 0.4);
-  grad.addColorStop(0, "rgba(255, 255, 255, 1)");
-  grad.addColorStop(0.15, "rgba(255, 252, 245, 0.9)");
-  grad.addColorStop(0.3, "rgba(255, 248, 230, 0.6)");
-  grad.addColorStop(0.5, "rgba(255, 240, 210, 0.3)");
-  grad.addColorStop(0.7, "rgba(255, 230, 190, 0.1)");
-  grad.addColorStop(1, "rgba(255, 220, 180, 0)");
-  
-  ctx.fillStyle = grad;
-  ctx.beginPath();
-  ctx.arc(0, 0, width * 0.4, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-  
-  const coreGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, width * 0.15);
+  // 椭圆形光斑 - 从上往下渐变
+  // 白色核心
+  const coreGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 20);
   coreGrad.addColorStop(0, "rgba(255, 255, 255, 1)");
-  coreGrad.addColorStop(0.5, "rgba(255, 255, 255, 0.5)");
-  coreGrad.addColorStop(1, "rgba(255, 255, 255, 0)");
+  coreGrad.addColorStop(0.5, "rgba(255, 255, 255, 0.9)");
+  coreGrad.addColorStop(1, "rgba(255, 255, 255, 0.5)");
   
   ctx.fillStyle = coreGrad;
   ctx.beginPath();
-  ctx.arc(cx, cy, width * 0.15, 0, Math.PI * 2);
+  ctx.ellipse(cx, cy, 15, 25, 0, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // 外层暖色光晕
+  ctx.globalCompositeOperation = "lighter";
+  
+  const glowGrad = ctx.createRadialGradient(cx, cy + 10, 0, cx, cy + 10, 50);
+  glowGrad.addColorStop(0, "rgba(255, 250, 240, 0.7)");
+  glowGrad.addColorStop(0.3, "rgba(255, 220, 180, 0.4)");
+  glowGrad.addColorStop(0.6, "rgba(255, 180, 120, 0.15)");
+  glowGrad.addColorStop(1, "rgba(255, 150, 100, 0)");
+  
+  ctx.fillStyle = glowGrad;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + 10, 40, 70, 0, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // 向下的拖尾渐变
+  const tailGrad = ctx.createLinearGradient(cx, cy, cx, height);
+  tailGrad.addColorStop(0, "rgba(255, 240, 220, 0.5)");
+  tailGrad.addColorStop(0.3, "rgba(255, 200, 150, 0.2)");
+  tailGrad.addColorStop(0.6, "rgba(200, 180, 255, 0.08)");
+  tailGrad.addColorStop(1, "rgba(150, 150, 255, 0)");
+  
+  ctx.fillStyle = tailGrad;
+  ctx.beginPath();
+  ctx.moveTo(cx - 25, cy);
+  ctx.quadraticCurveTo(cx - 35, cy + 80, cx - 8, height);
+  ctx.lineTo(cx + 8, height);
+  ctx.quadraticCurveTo(cx + 35, cy + 80, cx + 25, cy);
+  ctx.closePath();
   ctx.fill();
   
   const tex = new THREE.CanvasTexture(canvas);
@@ -298,8 +338,8 @@ function createMeteorTexture() {
   return tex;
 }
 
-// ============ 创建星星 ============
-function createSphereStars(count, radius, baseSize = 0.3) {
+// ============ 创建普通星星 ============
+function createStars(count, radius, baseSize = 0.2) {
   const positions = new Float32Array(count * 3);
   const colors = new Float32Array(count * 3);
   const phases = new Float32Array(count * 3);
@@ -307,21 +347,22 @@ function createSphereStars(count, radius, baseSize = 0.3) {
   for (let i = 0; i < count; i++) {
     const theta = Math.random() * Math.PI * 2;
     const phi = Math.acos(2 * Math.random() - 1);
-    const r = radius * (0.85 + 0.15 * Math.random());
+    const r = radius * (0.6 + 0.4 * Math.random());
     
     positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
     positions[i * 3 + 1] = r * Math.cos(phi);
     positions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
     
+    // 纯净的星星颜色
     const type = Math.random();
-    if (type < 0.55) {
+    if (type < 0.6) {
       colors[i * 3] = 1; colors[i * 3 + 1] = 1; colors[i * 3 + 2] = 1;
-    } else if (type < 0.72) {
+    } else if (type < 0.75) {
       colors[i * 3] = 0.9; colors[i * 3 + 1] = 0.95; colors[i * 3 + 2] = 1;
-    } else if (type < 0.86) {
+    } else if (type < 0.88) {
       colors[i * 3] = 1; colors[i * 3 + 1] = 0.97; colors[i * 3 + 2] = 0.85;
     } else {
-      colors[i * 3] = 1; colors[i * 3 + 1] = 0.85; colors[i * 3 + 2] = 0.75;
+      colors[i * 3] = 1; colors[i * 3 + 1] = 0.85; colors[i * 3 + 2] = 0.8;
     }
     
     phases[i * 3] = Math.random() * Math.PI * 2;
@@ -350,8 +391,8 @@ function createSphereStars(count, radius, baseSize = 0.3) {
   return { points, positions: positions.slice(), colors: colors.slice(), phases };
 }
 
-// ============ 浮动星星 ============
-function createFloatingStars(count, minDist, maxDist) {
+// ============ 创建浮动星星（空间分布）============
+function createFloatingStars(count, minRadius, maxRadius, baseSize = 0.25) {
   const positions = new Float32Array(count * 3);
   const colors = new Float32Array(count * 3);
   const phases = new Float32Array(count * 4);
@@ -359,23 +400,23 @@ function createFloatingStars(count, minDist, maxDist) {
   for (let i = 0; i < count; i++) {
     const theta = Math.random() * Math.PI * 2;
     const phi = Math.acos(2 * Math.random() - 1);
-    const r = minDist + Math.random() * (maxDist - minDist);
+    const r = minRadius + Math.random() * (maxRadius - minRadius);
     
     positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
     positions[i * 3 + 1] = r * Math.cos(phi);
     positions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
     
-    const tint = Math.random();
-    if (tint < 0.6) {
+    const type = Math.random();
+    if (type < 0.5) {
       colors[i * 3] = 1; colors[i * 3 + 1] = 1; colors[i * 3 + 2] = 1;
+    } else if (type < 0.7) {
+      colors[i * 3] = 0.85; colors[i * 3 + 1] = 0.92; colors[i * 3 + 2] = 1;
     } else {
-      colors[i * 3] = 0.85 + Math.random() * 0.15;
-      colors[i * 3 + 1] = 0.9 + Math.random() * 0.1;
-      colors[i * 3 + 2] = 1;
+      colors[i * 3] = 1; colors[i * 3 + 1] = 0.95; colors[i * 3 + 2] = 0.8;
     }
     
     phases[i * 4] = Math.random() * Math.PI * 2;
-    phases[i * 4 + 1] = 0.5 + Math.random() * 2.0;
+    phases[i * 4 + 1] = 0.5 + Math.random() * 2.5;
     phases[i * 4 + 2] = Math.random() * Math.PI * 2;
     phases[i * 4 + 3] = Math.random() * Math.PI * 2;
   }
@@ -385,8 +426,8 @@ function createFloatingStars(count, minDist, maxDist) {
   geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   
   const mat = new THREE.PointsMaterial({
-    map: brightStarTexture,
-    size: 0.8,
+    map: starTexture,
+    size: baseSize,
     vertexColors: true,
     transparent: true,
     opacity: 1,
@@ -401,27 +442,35 @@ function createFloatingStars(count, minDist, maxDist) {
   return { points, positions: positions.slice(), colors: colors.slice(), phases };
 }
 
-// ============ 环境星星 ============
-function createAmbientStars(count, radius) {
+// ============ 创建亮星（带十字星芒）============
+function createBrightStars(count, radius) {
   const positions = new Float32Array(count * 3);
   const colors = new Float32Array(count * 3);
+  const sizes = new Float32Array(count);
   const phases = new Float32Array(count * 2);
   
   for (let i = 0; i < count; i++) {
     const theta = Math.random() * Math.PI * 2;
     const phi = Math.acos(2 * Math.random() - 1);
-    const r = radius * (0.3 + 0.7 * Math.random());
+    const r = radius * (0.5 + 0.5 * Math.random());
     
     positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
     positions[i * 3 + 1] = r * Math.cos(phi);
     positions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
     
-    colors[i * 3] = 1;
-    colors[i * 3 + 1] = 1;
-    colors[i * 3 + 2] = 1;
+    // 亮星颜色偏白/淡蓝
+    const type = Math.random();
+    if (type < 0.6) {
+      colors[i * 3] = 1; colors[i * 3 + 1] = 1; colors[i * 3 + 2] = 1;
+    } else {
+      colors[i * 3] = 0.9; colors[i * 3 + 1] = 0.95; colors[i * 3 + 2] = 1;
+    }
+    
+    // 大小变化
+    sizes[i] = 0.8 + Math.random() * 1.2;
     
     phases[i * 2] = Math.random() * Math.PI * 2;
-    phases[i * 2 + 1] = 0.5 + Math.random() * 2.0;
+    phases[i * 2 + 1] = 0.3 + Math.random() * 1.5;
   }
   
   const geo = new THREE.BufferGeometry();
@@ -429,11 +478,11 @@ function createAmbientStars(count, radius) {
   geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   
   const mat = new THREE.PointsMaterial({
-    map: starTexture,
-    size: 0.15,
+    map: brightStarTexture,
+    size: 1.0,
     vertexColors: true,
     transparent: true,
-    opacity: 0.7,
+    opacity: 1,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
     sizeAttenuation: true,
@@ -442,12 +491,12 @@ function createAmbientStars(count, radius) {
   const points = new THREE.Points(geo, mat);
   points.frustumCulled = false;
   
-  return { points, positions: positions.slice(), phases };
+  return { points, positions: positions.slice(), colors: colors.slice(), sizes, phases };
 }
 
-// ============ 更新星星 ============
-function updateStars(data, time, twinkleStrength = 0.5) {
-  if (!data || !data.points) return;
+// ============ 更新星星动画 ============
+function updateStars(data, time, twinkleStrength = 0.4) {
+  if (!data) return;
   
   const { points, positions, colors, phases } = data;
   const posAttr = points.geometry.attributes.position.array;
@@ -455,19 +504,19 @@ function updateStars(data, time, twinkleStrength = 0.5) {
   const count = positions.length / 3;
   
   for (let i = 0; i < count; i++) {
-    const phase = phases[i * 3] || phases[i * 2] || 0;
-    const speed = phases[i * 3 + 1] || phases[i * 2 + 1] || 1;
+    const phase = phases[i * 3];
+    const speed = phases[i * 3 + 1];
     
-    const twinkle = 0.5 + 0.5 * Math.sin(time * speed + phase);
-    const brightness = (1 - twinkleStrength) + twinkleStrength * twinkle;
+    const twinkle = (1 - twinkleStrength) + twinkleStrength * (0.5 + 0.5 * Math.sin(time * speed + phase));
     
-    colAttr[i * 3] = colors[i * 3] * brightness;
-    colAttr[i * 3 + 1] = colors[i * 3 + 1] * brightness;
-    colAttr[i * 3 + 2] = colors[i * 3 + 2] * brightness;
+    colAttr[i * 3] = colors[i * 3] * twinkle;
+    colAttr[i * 3 + 1] = colors[i * 3 + 1] * twinkle;
+    colAttr[i * 3 + 2] = colors[i * 3 + 2] * twinkle;
     
-    const drift = 0.12;
+    // 微位移
+    const drift = 0.1;
     posAttr[i * 3] = positions[i * 3] + Math.sin(time * 0.15 + phase) * drift;
-    posAttr[i * 3 + 1] = positions[i * 3 + 1] + Math.cos(time * 0.12 + phase * 1.3) * drift * 0.6;
+    posAttr[i * 3 + 1] = positions[i * 3 + 1] + Math.cos(time * 0.12 + phase * 1.3) * drift * 0.5;
     posAttr[i * 3 + 2] = positions[i * 3 + 2] + Math.sin(time * 0.18 + phase * 0.7) * drift;
   }
   
@@ -475,8 +524,9 @@ function updateStars(data, time, twinkleStrength = 0.5) {
   points.geometry.attributes.color.needsUpdate = true;
 }
 
+// ============ 更新浮动星星（更大位移）============
 function updateFloatingStars(data, time) {
-  if (!data || !data.points) return;
+  if (!data) return;
   
   const { points, positions, colors, phases } = data;
   const posAttr = points.geometry.attributes.position.array;
@@ -489,24 +539,47 @@ function updateFloatingStars(data, time) {
     const phase2 = phases[i * 4 + 2];
     const phase3 = phases[i * 4 + 3];
     
-    const twinkle = Math.sin(time * speed + phase1);
-    const brightness = 0.6 + 0.4 * twinkle;
+    const twinkle = 0.6 + 0.4 * Math.sin(time * speed + phase1);
     
-    colAttr[i * 3] = colors[i * 3] * brightness;
-    colAttr[i * 3 + 1] = colors[i * 3 + 1] * brightness;
-    colAttr[i * 3 + 2] = colors[i * 3 + 2] * brightness;
+    colAttr[i * 3] = colors[i * 3] * twinkle;
+    colAttr[i * 3 + 1] = colors[i * 3 + 1] * twinkle;
+    colAttr[i * 3 + 2] = colors[i * 3 + 2] * twinkle;
     
-    const drift = 0.4;
-    posAttr[i * 3] = positions[i * 3] + Math.sin(time * 0.2 + phase2) * drift;
-    posAttr[i * 3 + 1] = positions[i * 3 + 1] + Math.sin(time * 0.15 + phase3) * drift * 0.8;
-    posAttr[i * 3 + 2] = positions[i * 3 + 2] + Math.cos(time * 0.18 + phase1) * drift;
+    // 更大的位移
+    const drift = 0.5;
+    posAttr[i * 3] = positions[i * 3] + Math.sin(time * 0.1 + phase2) * drift;
+    posAttr[i * 3 + 1] = positions[i * 3 + 1] + Math.sin(time * 0.08 + phase1) * drift * 0.6;
+    posAttr[i * 3 + 2] = positions[i * 3 + 2] + Math.cos(time * 0.12 + phase3) * drift;
   }
   
   points.geometry.attributes.position.needsUpdate = true;
   points.geometry.attributes.color.needsUpdate = true;
 }
 
-// ============ 流星 ============
+// ============ 更新亮星 ============
+function updateBrightStars(data, time) {
+  if (!data) return;
+  
+  const { points, colors, phases } = data;
+  const colAttr = points.geometry.attributes.color.array;
+  const count = colors.length / 3;
+  
+  for (let i = 0; i < count; i++) {
+    const phase = phases[i * 2];
+    const speed = phases[i * 2 + 1];
+    
+    // 缓慢脉动
+    const pulse = 0.7 + 0.3 * Math.sin(time * speed + phase);
+    
+    colAttr[i * 3] = colors[i * 3] * pulse;
+    colAttr[i * 3 + 1] = colors[i * 3 + 1] * pulse;
+    colAttr[i * 3 + 2] = colors[i * 3 + 2] * pulse;
+  }
+  
+  points.geometry.attributes.color.needsUpdate = true;
+}
+
+// ============ 电影级流星 ============
 function spawnMeteor() {
   if (touchPoints.length < 2) return;
   
@@ -527,16 +600,12 @@ function spawnMeteor() {
   const dir3D = new THREE.Vector3()
     .addScaledVector(camRight, dx / len)
     .addScaledVector(camUp, -dy / len)
-    .addScaledVector(camForward, 0.4)
+    .addScaledVector(camForward, 0.25)
     .normalize();
   
   const spawnPos = _camPos.clone()
     .add(camForward.clone().multiplyScalar(15))
-    .add(new THREE.Vector3(
-      (Math.random() - 0.5) * 8,
-      3 + Math.random() * 8,
-      (Math.random() - 0.5) * 8
-    ));
+    .add(new THREE.Vector3((Math.random() - 0.5) * 8, 3 + Math.random() * 6, (Math.random() - 0.5) * 8));
   
   const meteor = createCinematicMeteor(spawnPos, dir3D);
   scene.add(meteor);
@@ -547,46 +616,39 @@ function createCinematicMeteor(pos, dir) {
   const group = new THREE.Group();
   group.position.copy(pos);
   
-  // 本体
-  const bodyMat = new THREE.SpriteMaterial({
-    map: meteorTexture,
+  // 计算朝向
+  const quaternion = new THREE.Quaternion();
+  const up = new THREE.Vector3(0, 1, 0);
+  const matrix = new THREE.Matrix4().lookAt(new THREE.Vector3(), dir, up);
+  quaternion.setFromRotationMatrix(matrix);
+  
+  // 流星头部 - 使用精灵实现椭圆光斑
+  const headMat = new THREE.SpriteMaterial({
+    map: meteorHeadTexture,
     color: 0xffffff,
     transparent: true,
     opacity: 1,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
-  const body = new THREE.Sprite(bodyMat);
-  body.scale.set(0.6, 1.5, 1);
-  group.add(body);
+  const head = new THREE.Sprite(headMat);
+  head.scale.set(0.8, 1.6, 1);
+  head.material.rotation = Math.atan2(dir.y, Math.sqrt(dir.x * dir.x + dir.z * dir.z));
+  group.add(head);
   
-  // 内核
+  // 内核高亮
   const coreMat = new THREE.SpriteMaterial({
     map: starTexture,
     color: 0xffffff,
     transparent: true,
     opacity: 1,
     blending: THREE.AdditiveBlending,
-    depthWrite: false,
   });
   const core = new THREE.Sprite(coreMat);
-  core.scale.set(0.35, 0.35, 1);
+  core.scale.set(0.3, 0.3, 1);
   group.add(core);
   
-  // 光晕
-  const glowMat = new THREE.SpriteMaterial({
-    map: starTexture,
-    color: 0xffeedd,
-    transparent: true,
-    opacity: 0.6,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  });
-  const glow = new THREE.Sprite(glowMat);
-  glow.scale.set(1.0, 1.2, 1);
-  group.add(glow);
-  
-  // 尾迹
+  // 长尾迹
   const tailLength = 8 + Math.random() * 4;
   const segments = 150;
   const trailPos = new Float32Array(segments * 3);
@@ -595,29 +657,33 @@ function createCinematicMeteor(pos, dir) {
   for (let i = 0; i < segments; i++) {
     const t = i / segments;
     const tCurve = Math.pow(t, 0.6);
-    const spread = t * t * 0.25;
+    const spread = t * t * 0.15;
     
     trailPos[i * 3] = -dir.x * tCurve * tailLength + (Math.random() - 0.5) * spread;
     trailPos[i * 3 + 1] = -dir.y * tCurve * tailLength + (Math.random() - 0.5) * spread;
     trailPos[i * 3 + 2] = -dir.z * tCurve * tailLength + (Math.random() - 0.5) * spread;
     
-    const fade = Math.pow(1 - t, 1.8);
+    const fade = Math.pow(1 - t, 1.3);
     
+    // 颜色渐变：白 → 淡黄 → 暖橙 → 淡青/紫
     let r, g, b;
     if (t < 0.08) {
       r = 1; g = 1; b = 1;
-    } else if (t < 0.2) {
-      const blend = (t - 0.08) / 0.12;
-      r = 1; g = 1 - blend * 0.08; b = 1 - blend * 0.25;
-    } else if (t < 0.45) {
-      const blend = (t - 0.2) / 0.25;
-      r = 1 - blend * 0.15; g = 0.92 - blend * 0.17; b = 0.75 - blend * 0.15;
-    } else if (t < 0.7) {
-      const blend = (t - 0.45) / 0.25;
-      r = 0.85 - blend * 0.25; g = 0.75 - blend * 0.05; b = 0.6 + blend * 0.25;
+    } else if (t < 0.25) {
+      const blend = (t - 0.08) / 0.17;
+      r = 1;
+      g = 1 - blend * 0.1;
+      b = 1 - blend * 0.3;
+    } else if (t < 0.5) {
+      const blend = (t - 0.25) / 0.25;
+      r = 1 - blend * 0.15;
+      g = 0.9 - blend * 0.2;
+      b = 0.7 - blend * 0.1;
     } else {
-      const blend = (t - 0.7) / 0.3;
-      r = 0.6 - blend * 0.3; g = 0.7 - blend * 0.2; b = 0.85 - blend * 0.2;
+      const blend = (t - 0.5) / 0.5;
+      r = 0.85 - blend * 0.35;
+      g = 0.7 - blend * 0.1;
+      b = 0.6 + blend * 0.3;
     }
     
     trailCol[i * 3] = r * fade;
@@ -643,23 +709,22 @@ function createCinematicMeteor(pos, dir) {
   const trail = new THREE.Points(trailGeo, trailMat);
   group.add(trail);
   
-  // 火花
+  // 细碎火花
   const sparkCount = 60;
   const sparkPos = new Float32Array(sparkCount * 3);
   const sparkCol = new Float32Array(sparkCount * 3);
   
   for (let i = 0; i < sparkCount; i++) {
-    const t = Math.pow(Math.random(), 0.7) * 0.6;
+    const t = Math.random() * 0.4;
     const spread = t * 0.5;
-    
     sparkPos[i * 3] = -dir.x * t * tailLength + (Math.random() - 0.5) * spread;
-    sparkPos[i * 3 + 1] = -dir.y * t * tailLength + (Math.random() - 0.5) * spread;
+    sparkPos[i * 3 + 1] = -dir.y * t * tailLength + (Math.random() - 0.5) * spread - Math.random() * 0.1;
     sparkPos[i * 3 + 2] = -dir.z * t * tailLength + (Math.random() - 0.5) * spread;
     
     const brightness = 0.4 + Math.random() * 0.6;
     sparkCol[i * 3] = brightness;
-    sparkCol[i * 3 + 1] = brightness * 0.95;
-    sparkCol[i * 3 + 2] = brightness * 0.8;
+    sparkCol[i * 3 + 1] = brightness * (0.8 + Math.random() * 0.2);
+    sparkCol[i * 3 + 2] = brightness * (0.5 + Math.random() * 0.3);
   }
   
   const sparkGeo = new THREE.BufferGeometry();
@@ -671,7 +736,7 @@ function createCinematicMeteor(pos, dir) {
     size: 0.1,
     vertexColors: true,
     transparent: true,
-    opacity: 0.9,
+    opacity: 0.8,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
     sizeAttenuation: true,
@@ -682,10 +747,13 @@ function createCinematicMeteor(pos, dir) {
   
   group.userData = {
     direction: dir.clone(),
-    speed: 8 + Math.random() * 5,
+    speed: 6 + Math.random() * 4, // 减慢速度
     life: 0,
-    maxLife: 4 + Math.random() * 2,
-    bodyMat, coreMat, glowMat, trailMat, sparkMat,
+    maxLife: 4 + Math.random() * 2, // 延长生命
+    headMat,
+    coreMat,
+    trailMat,
+    sparkMat,
   };
   
   return group;
@@ -702,13 +770,12 @@ function updateMeteors(delta) {
     const progress = d.life / d.maxLife;
     const fade = progress < 0.1 
       ? progress / 0.1 
-      : Math.pow(Math.max(0, 1 - (progress - 0.1) / 0.9), 0.8);
+      : Math.pow(Math.max(0, 1 - (progress - 0.1) / 0.9), 0.6);
     
-    d.bodyMat.opacity = fade;
+    d.headMat.opacity = fade;
     d.coreMat.opacity = fade;
-    d.glowMat.opacity = fade * 0.6;
     d.trailMat.opacity = fade;
-    d.sparkMat.opacity = fade * 0.9;
+    d.sparkMat.opacity = fade * 0.8;
     
     if (d.life >= d.maxLife) {
       scene.remove(m);
@@ -717,19 +784,14 @@ function updateMeteors(delta) {
   }
 }
 
-// ============ 构建场景（关键修复）============
-function build(hitPos, lookAtPos) {
+// ============ 构建场景 ============
+function build() {
+  const panoTexture = new THREE.TextureLoader().load(`${BASE}textures/pano.jpg`);
+  panoTexture.colorSpace = THREE.SRGBColorSpace;
+
   doorGroup = new THREE.Group();
-  
-  // 计算门的位置和朝向
-  const dir = new THREE.Vector3(lookAtPos.x - hitPos.x, 0, lookAtPos.z - hitPos.z).normalize();
-  doorGroup.position.copy(hitPos).addScaledVector(dir, -DOOR_DISTANCE);
-  doorGroup.position.y = hitPos.y;
-  doorGroup.lookAt(lookAtPos.x, doorGroup.position.y, lookAtPos.z);
-  
   scene.add(doorGroup);
 
-  // 门框
   new GLTFLoader().load(
     `${BASE}models/doorframe.glb`,
     (gltf) => {
@@ -745,8 +807,7 @@ function build(hitPos, lookAtPos) {
     },
     undefined,
     () => {
-      // fallback 门框
-      const mat = new THREE.MeshBasicMaterial({ color: 0x333333 });
+      const mat = new THREE.MeshBasicMaterial({ color: 0x222222 });
       const left = new THREE.Mesh(new THREE.BoxGeometry(0.1, DOOR_HEIGHT, 0.1), mat);
       left.position.set(-0.55, DOOR_HEIGHT / 2, 0);
       const right = new THREE.Mesh(new THREE.BoxGeometry(0.1, DOOR_HEIGHT, 0.1), mat);
@@ -757,7 +818,7 @@ function build(hitPos, lookAtPos) {
     }
   );
 
-  // ===== Stencil 遮罩（renderOrder = 0）=====
+  // Stencil mask
   const maskShape = new THREE.Shape();
   const mw = 1.08, mh = 1.9, archR = 0.54;
   maskShape.moveTo(-mw/2, 0);
@@ -766,87 +827,108 @@ function build(hitPos, lookAtPos) {
   maskShape.lineTo(mw/2, 0);
   maskShape.closePath();
 
-  const maskMat = new THREE.MeshBasicMaterial({ 
-    colorWrite: false, 
-    depthWrite: false 
-  });
+  const maskMat = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
   maskMat.stencilWrite = true;
   maskMat.stencilRef = 1;
   maskMat.stencilFunc = THREE.AlwaysStencilFunc;
   maskMat.stencilZPass = THREE.ReplaceStencilOp;
-  maskMat.stencilFail = THREE.KeepStencilOp;
-  maskMat.stencilZFail = THREE.KeepStencilOp;
 
   portalMask = new THREE.Mesh(new THREE.ShapeGeometry(maskShape, 32), maskMat);
   portalMask.position.set(0, 0.01, -0.03);
   portalMask.renderOrder = 0;
   doorGroup.add(portalMask);
 
-  // ===== 门内天球（renderOrder = 1）=====
-  const skyMat = new THREE.MeshBasicMaterial({
+  // 预览天球
+  const previewMat = new THREE.MeshBasicMaterial({
     map: panoTexture,
     side: THREE.BackSide,
+    transparent: true,
+    opacity: 1,
     depthWrite: false,
   });
-  skyMat.stencilWrite = false;
-  skyMat.stencilRef = 1;
-  skyMat.stencilFunc = THREE.EqualStencilFunc;
+  previewMat.stencilWrite = true;
+  previewMat.stencilRef = 1;
+  previewMat.stencilFunc = THREE.EqualStencilFunc;
 
-  skySphere = new THREE.Mesh(new THREE.SphereGeometry(SKY_RADIUS, 64, 32), skyMat);
-  skySphere.renderOrder = 1;
-  skySphere.frustumCulled = false;
+  previewSphere = new THREE.Mesh(new THREE.SphereGeometry(PREVIEW_RADIUS, 48, 32), previewMat);
+  previewSphere.renderOrder = 1;
+  previewSphere.frustumCulled = false;
+  doorGroup.add(previewSphere);
+
+  // 预览星星（更多）
+  previewStarData = createStars(PREVIEW_STAR_COUNT, PREVIEW_RADIUS * 0.85, 0.18);
+  previewStars = previewStarData.points;
+  previewStars.material.stencilWrite = true;
+  previewStars.material.stencilRef = 1;
+  previewStars.material.stencilFunc = THREE.EqualStencilFunc;
+  previewStars.renderOrder = 2;
+  doorGroup.add(previewStars);
+
+  // 门内天球（使用同一张全景图）
+  skySphere = new THREE.Mesh(
+    new THREE.SphereGeometry(SKY_RADIUS, 64, 32),
+    new THREE.MeshBasicMaterial({
+      map: panoTexture,
+      side: THREE.BackSide,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+    })
+  );
+  skySphere.renderOrder = -100;
   scene.add(skySphere);
 
-  // ===== 球面星星（renderOrder = 2）=====
-  starData = createSphereStars(STAR_COUNT, SKY_RADIUS * 0.8, 0.35);
+  // 门内球面星星
+  starData = createStars(STAR_COUNT, SKY_RADIUS * 0.85, 0.28);
   skyStars = starData.points;
-  skyStars.material.stencilWrite = false;
-  skyStars.material.stencilRef = 1;
-  skyStars.material.stencilFunc = THREE.EqualStencilFunc;
-  skyStars.renderOrder = 2;
+  skyStars.material.opacity = 0;
+  skyStars.renderOrder = -99;
   scene.add(skyStars);
 
-  // ===== 浮动星星（renderOrder = 3）=====
-  floatingStarData = createFloatingStars(FLOATING_STAR_COUNT, 5, SKY_RADIUS * 0.6);
+  // 门内浮动星星
+  floatingStarData = createFloatingStars(FLOATING_STAR_COUNT, SKY_RADIUS * 0.3, SKY_RADIUS * 0.7, 0.22);
   floatingStars = floatingStarData.points;
-  floatingStars.material.stencilWrite = false;
-  floatingStars.material.stencilRef = 1;
-  floatingStars.material.stencilFunc = THREE.EqualStencilFunc;
-  floatingStars.renderOrder = 3;
+  floatingStars.material.opacity = 0;
+  floatingStars.renderOrder = -98;
   scene.add(floatingStars);
 
-  // ===== 门外环境星星 =====
-  ambientStarData = createAmbientStars(AMBIENT_STAR_COUNT, 20);
-  ambientStars = ambientStarData.points;
-  ambientStars.position.set(0, 1.5, -3);
-  doorGroup.add(ambientStars);
-
-  // 设置门平面参数
-  doorPlanePoint.copy(doorGroup.position);
-  doorPlaneNormal.set(0, 0, 1).applyQuaternion(doorGroup.quaternion);
+  // 门内亮星（带十字星芒）
+  brightStarData = createBrightStars(80, SKY_RADIUS * 0.8);
+  brightStars = brightStarData.points;
+  brightStars.material.opacity = 0;
+  brightStars.renderOrder = -97;
+  scene.add(brightStars);
 }
 
-// ============ 放置门（修复）============
+// ============ 放置门 ============
 function onSelect() {
   if (placed) return;
   if (!reticle.visible) return;
+  if (!doorGroup) build();
 
   const xrCam = renderer.xr.getCamera(camera);
   xrCam.getWorldPosition(_camPos);
 
   const hitPos = new THREE.Vector3().setFromMatrixPosition(reticle.matrix);
+  const dir = new THREE.Vector3(_camPos.x - hitPos.x, 0, _camPos.z - hitPos.z).normalize();
   
-  // 直接在这里构建，传入位置参数
-  build(hitPos, _camPos);
+  doorGroup.position.copy(hitPos).addScaledVector(dir, -DOOR_DISTANCE);
+  doorGroup.position.y = hitPos.y;
+  doorGroup.lookAt(_camPos.x, doorGroup.position.y, _camPos.z);
+
+  previewSphere.position.set(0, 1, -PREVIEW_RADIUS * 0.4);
+  previewStars.position.set(0, 1, -PREVIEW_RADIUS * 0.4);
+
+  doorPlanePoint.copy(doorGroup.position);
+  doorPlaneNormal.set(0, 0, 1).applyQuaternion(doorGroup.quaternion);
 
   lastSide = getSide(xrCam);
   isInside = false;
+  transitionValue = 0;
   placed = true;
   reticle.visible = false;
 
   playAudio();
-  
-  console.log("Portal placed at:", doorGroup.position);
 }
 
 function getSide(xrCam) {
@@ -854,35 +936,49 @@ function getSide(xrCam) {
   return doorPlaneNormal.dot(_camPos.clone().sub(doorPlanePoint)) >= 0 ? 1 : -1;
 }
 
-// ============ 更新状态 ============
-function updateState(xrCam) {
-  const currentSide = getSide(xrCam);
+// ============ 改进的过渡逻辑 ============
+function updateTransition(xrCam, delta) {
+  xrCam.getWorldPosition(_camPos);
+  const toCamera = _camPos.clone().sub(doorPlanePoint);
+  const signedDist = doorPlaneNormal.dot(toCamera);
   
-  if (lastSide === 1 && currentSide === -1) {
-    isInside = true;
-    console.log("Entered portal");
-  } else if (lastSide === -1 && currentSide === 1) {
-    isInside = false;
-    console.log("Exited portal");
-  }
-  
+  const currentSide = signedDist >= 0 ? 1 : -1;
+  if (lastSide === 1 && currentSide === -1) isInside = true;
+  else if (lastSide === -1 && currentSide === 1) isInside = false;
   lastSide = currentSide;
   
+  // 目标值计算
+  let target;
   if (isInside) {
-    // 门内：禁用 stencil，完整显示
-    skySphere.material.stencilFunc = THREE.AlwaysStencilFunc;
-    skyStars.material.stencilFunc = THREE.AlwaysStencilFunc;
-    floatingStars.material.stencilFunc = THREE.AlwaysStencilFunc;
-    portalMask.visible = false;
-    if (ambientStars) ambientStars.visible = false;
+    // 门内：完全显示门内世界
+    target = 1;
   } else {
-    // 门外：启用 stencil，只在门洞可见
-    skySphere.material.stencilFunc = THREE.EqualStencilFunc;
-    skyStars.material.stencilFunc = THREE.EqualStencilFunc;
-    floatingStars.material.stencilFunc = THREE.EqualStencilFunc;
-    portalMask.visible = true;
-    if (ambientStars) ambientStars.visible = true;
+    // 门外：基于距离，越近越透
+    const dist = Math.abs(signedDist);
+    target = Math.max(0, 0.2 * (1 - dist / 2.0));
   }
+  
+  // 平滑过渡
+  const speed = 4.0;
+  transitionValue += (target - transitionValue) * Math.min(1, delta * speed);
+  
+  // smoothstep
+  const t = transitionValue;
+  const smooth = t * t * (3 - 2 * t);
+  
+  // 应用到门内世界
+  if (skySphere) skySphere.material.opacity = smooth;
+  if (skyStars) skyStars.material.opacity = smooth;
+  if (floatingStars) floatingStars.material.opacity = smooth;
+  if (brightStars) brightStars.material.opacity = smooth;
+  
+  // 预览：从1淡出到0
+  const previewOp = 1 - smooth;
+  if (previewSphere) previewSphere.material.opacity = previewOp;
+  if (previewStars) previewStars.material.opacity = previewOp;
+  
+  // 遮罩可见性
+  if (portalMask) portalMask.visible = smooth < 0.95;
 }
 
 // ============ 渲染 ============
@@ -918,19 +1014,20 @@ function render(_, frame) {
   }
 
   if (placed) {
-    updateState(xrCam);
+    updateTransition(xrCam, delta);
     updateMeteors(delta);
 
-    // 门内世界跟随相机
     xrCam.getWorldPosition(_camPos);
-    if (skySphere) skySphere.position.copy(_camPos);
-    if (skyStars) skyStars.position.copy(_camPos);
-    if (floatingStars) floatingStars.position.copy(_camPos);
+    skySphere.position.copy(_camPos);
+    skyStars.position.copy(_camPos);
+    floatingStars.position.copy(_camPos);
+    brightStars.position.copy(_camPos);
     
     // 更新星星动画
-    updateStars(starData, time, 0.45);
+    updateStars(starData, time, 0.35);
+    updateStars(previewStarData, time, 0.3);
     updateFloatingStars(floatingStarData, time);
-    updateStars(ambientStarData, time, 0.35);
+    updateBrightStars(brightStarData, time);
   }
 
   renderer.clear(true, true, true);
@@ -940,13 +1037,9 @@ function render(_, frame) {
 function reset() {
   placed = false;
   isInside = false;
+  transitionValue = 0;
   
-  if (bgAudio) { 
-    bgAudio.pause(); 
-    bgAudio.currentTime = 0; 
-    audioStarted = false; 
-  }
-  
+  if (bgAudio) { bgAudio.pause(); bgAudio.currentTime = 0; audioStarted = false; }
   meteors.forEach(m => scene.remove(m));
   meteors = [];
   
@@ -954,14 +1047,15 @@ function reset() {
   if (skySphere) { scene.remove(skySphere); skySphere = null; }
   if (skyStars) { scene.remove(skyStars); skyStars = null; }
   if (floatingStars) { scene.remove(floatingStars); floatingStars = null; }
+  if (brightStars) { scene.remove(brightStars); brightStars = null; }
   
-  ambientStars = null;
+  previewSphere = null;
+  previewStars = null;
   portalMask = null;
   starData = null;
   floatingStarData = null;
-  ambientStarData = null;
+  brightStarData = null;
+  previewStarData = null;
   
   reticle.visible = false;
-  
-  console.log("Portal reset");
 }
