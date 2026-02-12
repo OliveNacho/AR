@@ -27,7 +27,7 @@ let saturnMesh = null;
 let saturnRingMesh = null;
 let sunMesh = null;
 let sunGlowSprite = null;
-let auroraGroup = null;
+let milkyWayModel = null;
 let easterEggs = [];
 let constellationGroups = [];
 let placed = false;
@@ -202,49 +202,6 @@ function createSunGlowTexture() {
   
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
-// ============ 创建极光纹理 ============
-function createAuroraTexture() {
-  const width = 512;
-  const height = 256;
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext("2d");
-  
-  // 渐变背景
-  const gradient = ctx.createLinearGradient(0, 0, 0, height);
-  gradient.addColorStop(0, "rgba(0,255,150,0)");
-  gradient.addColorStop(0.3, "rgba(0,255,100,0.3)");
-  gradient.addColorStop(0.5, "rgba(100,200,255,0.5)");
-  gradient.addColorStop(0.7, "rgba(150,100,255,0.3)");
-  gradient.addColorStop(1, "rgba(100,50,200,0)");
-  
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, width, height);
-  
-  // 添加一些垂直条纹
-  for (let i = 0; i < 30; i++) {
-    const x = Math.random() * width;
-    const w = 2 + Math.random() * 8;
-    const alpha = 0.1 + Math.random() * 0.3;
-    const hue = 120 + Math.random() * 80; // 绿色到蓝色
-    
-    const stripeGradient = ctx.createLinearGradient(0, 0, 0, height);
-    stripeGradient.addColorStop(0, `hsla(${hue}, 100%, 70%, 0)`);
-    stripeGradient.addColorStop(0.3, `hsla(${hue}, 100%, 70%, ${alpha})`);
-    stripeGradient.addColorStop(0.6, `hsla(${hue + 40}, 100%, 60%, ${alpha * 0.7})`);
-    stripeGradient.addColorStop(1, `hsla(${hue + 60}, 100%, 50%, 0)`);
-    
-    ctx.fillStyle = stripeGradient;
-    ctx.fillRect(x, 0, w, height);
-  }
-  
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.ClampToEdgeWrapping;
   return tex;
 }
 
@@ -959,90 +916,6 @@ function updateConstellations(time, opacity) {
   });
 }
 
-// ============ 创建极光 ============
-function createAurora() {
-  const group = new THREE.Group();
-  
-  const auroraTexture = createAuroraTexture();
-  
-  // 创建多层极光
-  const layerCount = 5;
-  for (let i = 0; i < layerCount; i++) {
-    const width = 40 + i * 10;
-    const height = 15 + i * 3;
-    
-    const geometry = new THREE.PlaneGeometry(width, height, 64, 16);
-    
-    // 给几何体添加波动
-    const posAttr = geometry.attributes.position;
-    const waveData = [];
-    for (let j = 0; j < posAttr.count; j++) {
-      waveData.push({
-        phase: Math.random() * Math.PI * 2,
-        speed: 0.3 + Math.random() * 0.5,
-        amplitude: 0.5 + Math.random() * 1
-      });
-    }
-    geometry.userData.waveData = waveData;
-    geometry.userData.originalPositions = posAttr.array.slice();
-    
-    const material = new THREE.MeshBasicMaterial({
-      map: auroraTexture,
-      transparent: true,
-      opacity: 0,
-      side: THREE.DoubleSide,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    });
-    
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.rotation.x = -Math.PI / 2.5; // 倾斜
-    mesh.position.y = -8 - i * 2;
-    mesh.position.z = -5 - i * 5;
-    mesh.userData.layerIndex = i;
-    mesh.userData.baseOpacity = 0.15 - i * 0.02;
-    
-    group.add(mesh);
-  }
-  
-  group.renderOrder = 5;
-  return group;
-}
-
-function updateAurora(time, opacity) {
-  if (!auroraGroup) return;
-  
-  auroraGroup.children.forEach((mesh, layerIdx) => {
-    // 更新透明度
-    mesh.material.opacity = mesh.userData.baseOpacity * opacity;
-    
-    // 更新波动
-    const geometry = mesh.geometry;
-    const posAttr = geometry.attributes.position;
-    const origPos = geometry.userData.originalPositions;
-    const waveData = geometry.userData.waveData;
-    
-    if (origPos && waveData) {
-      for (let i = 0; i < posAttr.count; i++) {
-        const wave = waveData[i];
-        const origY = origPos[i * 3 + 1];
-        const origZ = origPos[i * 3 + 2];
-        
-        // 缓慢波动
-        const waveOffset = Math.sin(time * wave.speed + wave.phase + origPos[i * 3] * 0.1) * wave.amplitude;
-        posAttr.array[i * 3 + 1] = origY + waveOffset * 0.3;
-        posAttr.array[i * 3 + 2] = origZ + waveOffset * 0.2;
-      }
-      posAttr.needsUpdate = true;
-    }
-    
-    // UV滚动产生流动效果
-    if (mesh.material.map) {
-      mesh.material.map.offset.x = Math.sin(time * 0.05 + layerIdx) * 0.1;
-    }
-  });
-}
-
 // ============ 构建 ============
 function createNebulaPortal() {
   const group = new THREE.Group();
@@ -1216,7 +1089,7 @@ function build() {
   marsMesh.renderOrder = 10;
   scene.add(marsMesh);
 
-  // ===== 土星（门外方向，用户回头能看到）=====
+  // ===== 土星 =====
   const saturnGeo = new THREE.SphereGeometry(5, 64, 64);
   saturnMesh = new THREE.Mesh(saturnGeo, new THREE.MeshBasicMaterial({ 
     color: 0xddcc88, 
@@ -1230,14 +1103,6 @@ function build() {
   const ringInnerRadius = 6.5;
   const ringOuterRadius = 12;
   const ringGeo = new THREE.RingGeometry(ringInnerRadius, ringOuterRadius, 64);
-  // 调整UV让贴图正确映射
-  const ringUVs = ringGeo.attributes.uv;
-  for (let i = 0; i < ringUVs.count; i++) {
-    const u = ringUVs.getX(i);
-    const v = ringUVs.getY(i);
-    // 将UV从0-1映射到基于半径的值
-    ringUVs.setXY(i, u, v);
-  }
   
   saturnRingMesh = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({
     color: 0xffffff,
@@ -1246,11 +1111,11 @@ function build() {
     side: THREE.DoubleSide,
     depthWrite: false,
   }));
-  saturnRingMesh.rotation.x = Math.PI / 2.5; // 倾斜环
+  saturnRingMesh.rotation.x = Math.PI / 2.5;
   saturnRingMesh.renderOrder = 11;
   scene.add(saturnRingMesh);
 
-  // ===== 太阳（门外方向，远处）=====
+  // ===== 太阳（更远）=====
   const sunGeo = new THREE.SphereGeometry(8, 64, 64);
   sunMesh = new THREE.Mesh(sunGeo, new THREE.MeshBasicMaterial({ 
     color: 0xffdd88, 
@@ -1275,9 +1140,36 @@ function build() {
   sunGlowSprite.renderOrder = 9;
   scene.add(sunGlowSprite);
 
-  // ===== 极光（用户脚下）=====
-  auroraGroup = createAurora();
-  scene.add(auroraGroup);
+  // ===== 银河漩涡模型（用户脚下）=====
+  gltfLoader.load(`${BASE}models/milky.glb`, (gltf) => {
+    milkyWayModel = gltf.scene;
+    
+    // 设置模型属性
+    milkyWayModel.traverse((child) => {
+      if (child.isMesh) {
+        child.material.transparent = true;
+        child.material.opacity = 0;
+        child.material.depthWrite = false;
+        if (child.material.emissive) {
+          child.material.emissive = child.material.color.clone();
+          child.material.emissiveIntensity = 0.5;
+        }
+      }
+    });
+    
+    // 调整大小和位置
+    const box = new THREE.Box3().setFromObject(milkyWayModel);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const maxDim = Math.max(size.x, size.y, size.z);
+    const targetSize = 30; // 目标大小
+    milkyWayModel.scale.setScalar(targetSize / maxDim);
+    
+    milkyWayModel.renderOrder = 5;
+    scene.add(milkyWayModel);
+  }, undefined, (err) => {
+    console.log("Milky way model not loaded:", err);
+  });
 
   // 加载贴图
   texLoader.load(`${BASE}textures/moon.jpg`, (tex) => { 
@@ -1286,7 +1178,7 @@ function build() {
     moonMesh.material.color.set(0xffffff); 
     moonMesh.material.needsUpdate = true; 
   });
-  texLoader.load(`${BASE}textures/jupiter.jpg`, (tex) => { 
+  texLoader.load(`${BASE}textures/earth.jpg`, (tex) => { 
     tex.colorSpace = THREE.SRGBColorSpace; 
     jupiterMesh.material.map = tex; 
     jupiterMesh.material.color.set(0xffffff); 
@@ -1394,11 +1286,20 @@ function updateTransition(xrCam, delta) {
   if (saturnRingMesh) saturnRingMesh.material.opacity = smooth * 0.9;
   if (sunMesh) sunMesh.material.opacity = smooth;
   if (sunGlowSprite) sunGlowSprite.material.opacity = smooth * 0.6;
+  
+  // 银河模型透明度
+  if (milkyWayModel) {
+    milkyWayModel.traverse((child) => {
+      if (child.isMesh) {
+        child.material.opacity = smooth * 0.8;
+      }
+    });
+  }
+  
   easterEggs.forEach(egg => { egg.userData.spriteMat.opacity = smooth * 0.3; });
   
-  // 星座和极光透明度
+  // 星座透明度
   updateConstellations(performance.now() / 1000, smooth);
-  updateAurora(performance.now() / 1000, smooth);
   
   const previewOp = 1 - smooth;
   if (nebulaPortal) nebulaPortal.userData.nebulaMat.opacity = previewOp * 0.5;
@@ -1437,42 +1338,42 @@ function updateCelestialBodies(time, delta) {
     marsMesh.rotation.y += delta * 0.04;
   }
   
-  // 土星（门外方向，左上方 - 用户回头能看到）
+  // 土星（门外方向）
   if (saturnMesh) {
     const saturnPos = doorPlanePoint.clone()
-      .addScaledVector(doorForward, -25) // 门外方向（负forward）
+      .addScaledVector(doorForward, -25)
       .addScaledVector(doorRight, -15);
     saturnPos.y = doorPlanePoint.y + 10;
     saturnMesh.position.copy(saturnPos);
     saturnMesh.rotation.y += delta * 0.02;
     
-    // 土星环跟随土星
     if (saturnRingMesh) {
       saturnRingMesh.position.copy(saturnPos);
     }
   }
   
-  // 太阳（门外方向，右上方更远处）
+  // 太阳（门外方向，更远）
   if (sunMesh) {
     const sunPos = doorPlanePoint.clone()
-      .addScaledVector(doorForward, -40) // 门外方向更远
-      .addScaledVector(doorRight, 20);
-    sunPos.y = doorPlanePoint.y + 15;
+      .addScaledVector(doorForward, -55) // 更远
+      .addScaledVector(doorRight, 25);
+    sunPos.y = doorPlanePoint.y + 18;
     sunMesh.position.copy(sunPos);
     sunMesh.rotation.y += delta * 0.01;
     
-    // 太阳光晕跟随太阳
     if (sunGlowSprite) {
       sunGlowSprite.position.copy(sunPos);
-      // 光晕轻微脉动
       const glowScale = 40 + Math.sin(time * 0.5) * 3;
       sunGlowSprite.scale.set(glowScale, glowScale, 1);
     }
   }
   
-  // 极光位置（跟随用户位置，在脚下）
-  if (auroraGroup) {
-    auroraGroup.position.copy(_camPos);
+  // 银河模型位置（用户脚下，缓慢旋转）
+  if (milkyWayModel) {
+    const milkyPos = _camPos.clone();
+    milkyPos.y = doorPlanePoint.y - 15; // 脚下
+    milkyWayModel.position.copy(milkyPos);
+    milkyWayModel.rotation.y += delta * 0.02; // 缓慢旋转
   }
   
   // 更新星座位置
@@ -1584,7 +1485,7 @@ function reset() {
   if (saturnRingMesh) { scene.remove(saturnRingMesh); saturnRingMesh = null; }
   if (sunMesh) { scene.remove(sunMesh); sunMesh = null; }
   if (sunGlowSprite) { scene.remove(sunGlowSprite); sunGlowSprite = null; }
-  if (auroraGroup) { scene.remove(auroraGroup); auroraGroup = null; }
+  if (milkyWayModel) { scene.remove(milkyWayModel); milkyWayModel = null; }
   
   constellationGroups.forEach(g => scene.remove(g));
   constellationGroups = [];
