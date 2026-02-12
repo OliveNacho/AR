@@ -27,7 +27,6 @@ let saturnMesh = null;
 let saturnRingMesh = null;
 let sunMesh = null;
 let sunGlowSprite = null;
-let milkyWayModel = null;
 let easterEggs = [];
 let constellationGroups = [];
 let placed = false;
@@ -118,7 +117,6 @@ function init() {
 
 function initTouchEvents() {
   const canvas = renderer.domElement;
-  
   canvas.addEventListener("touchstart", (e) => {
     if (!placed) return;
     isTouching = true;
@@ -126,14 +124,12 @@ function initTouchEvents() {
     const touch = e.touches[0];
     touchPoints.push({ x: touch.clientX, y: touch.clientY });
   }, { passive: true });
-  
   canvas.addEventListener("touchmove", (e) => {
     if (!isTouching) return;
     const touch = e.touches[0];
     touchPoints.push({ x: touch.clientX, y: touch.clientY });
     if (touchPoints.length > 25) touchPoints.shift();
   }, { passive: true });
-  
   canvas.addEventListener("touchend", () => {
     if (!isTouching) return;
     isTouching = false;
@@ -606,9 +602,9 @@ function createNebulaPortal() {
 function createEasterEggs() {
   const eggs = [];
   const eggData = [
-    { text: "Ad Astra", relPos: { forward: 25, right: -18, up: 8 } },
-    { text: "Dream", relPos: { forward: 30, right: 20, up: -3 } },
-    { text: "✦", relPos: { forward: 35, right: 0, up: 12 } },
+    { text: "Z", relPos: { forward: 25, right: -18, up: 8 } },
+    { text: "X", relPos: { forward: 30, right: 20, up: -3 } },
+    { text: "D", relPos: { forward: 35, right: 0, up: 12 } },
   ];
   eggData.forEach((egg) => {
     const canvas = document.createElement("canvas");
@@ -728,7 +724,7 @@ function build() {
   marsMesh.renderOrder = 10;
   scene.add(marsMesh);
 
-  // 土星
+  // 土星（门外方向）
   const saturnGeo = new THREE.SphereGeometry(5, 64, 64);
   saturnMesh = new THREE.Mesh(saturnGeo, new THREE.MeshBasicMaterial({ color: 0xddcc88, transparent: true, opacity: 0 }));
   saturnMesh.renderOrder = 10;
@@ -741,7 +737,7 @@ function build() {
   saturnRingMesh.renderOrder = 11;
   scene.add(saturnRingMesh);
 
-  // 太阳
+  // 太阳（门外方向）
   const sunGeo = new THREE.SphereGeometry(8, 64, 64);
   sunMesh = new THREE.Mesh(sunGeo, new THREE.MeshBasicMaterial({ color: 0xffdd88, transparent: true, opacity: 0 }));
   sunMesh.renderOrder = 10;
@@ -754,30 +750,6 @@ function build() {
   sunGlowSprite.scale.set(40, 40, 1);
   sunGlowSprite.renderOrder = 9;
   scene.add(sunGlowSprite);
-
-  // 银河漩涡（门外方向，比太阳更远）
-  gltfLoader.load(`${BASE}models/milky.glb`, (gltf) => {
-    milkyWayModel = gltf.scene;
-    milkyWayModel.traverse((child) => {
-      if (child.isMesh) {
-        child.material.transparent = true;
-        child.material.opacity = 0;
-        child.material.depthWrite = false;
-        child.material.blending = THREE.AdditiveBlending;
-      }
-    });
-    // 调整大小
-    const box = new THREE.Box3().setFromObject(milkyWayModel);
-    const size = new THREE.Vector3();
-    box.getSize(size);
-    const maxDim = Math.max(size.x, size.y, size.z);
-    const targetSize = 25;
-    milkyWayModel.scale.setScalar(targetSize / maxDim);
-    milkyWayModel.renderOrder = 5;
-    scene.add(milkyWayModel);
-  }, undefined, (err) => {
-    console.log("Milky way model not loaded:", err);
-  });
 
   // 加载贴图
   texLoader.load(`${BASE}textures/moon.jpg`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; moonMesh.material.map = tex; moonMesh.material.color.set(0xffffff); moonMesh.material.needsUpdate = true; });
@@ -866,15 +838,6 @@ function updateTransition(xrCam, delta) {
   if (sunMesh) sunMesh.material.opacity = smooth;
   if (sunGlowSprite) sunGlowSprite.material.opacity = smooth * 0.6;
   
-  // 银河模型透明度
-  if (milkyWayModel) {
-    milkyWayModel.traverse((child) => {
-      if (child.isMesh) {
-        child.material.opacity = smooth * 0.9;
-      }
-    });
-  }
-  
   easterEggs.forEach(egg => { egg.userData.spriteMat.opacity = smooth * 0.3; });
   updateConstellations(performance.now() / 1000, smooth);
   
@@ -885,7 +848,7 @@ function updateTransition(xrCam, delta) {
 }
 
 function updateCelestialBodies(time, delta) {
-  // 月亮
+  // 月亮（门内方向）
   if (moonMesh) {
     const moonPos = doorPlanePoint.clone().addScaledVector(doorForward, 12).addScaledVector(doorRight, -8);
     moonPos.y = doorPlanePoint.y + 6;
@@ -893,7 +856,7 @@ function updateCelestialBodies(time, delta) {
     moonMesh.rotation.y += delta * 0.05;
   }
   
-  // 木星
+  // 木星（门内方向）
   if (jupiterMesh) {
     const jupiterPos = doorPlanePoint.clone().addScaledVector(doorForward, 28).addScaledVector(doorRight, 15);
     jupiterPos.y = doorPlanePoint.y + 5;
@@ -901,7 +864,7 @@ function updateCelestialBodies(time, delta) {
     jupiterMesh.rotation.y += delta * 0.03;
   }
   
-  // 火星
+  // 火星（门内方向下方）
   if (marsMesh) {
     const marsPos = doorPlanePoint.clone().addScaledVector(doorForward, 25).addScaledVector(doorRight, 5);
     marsPos.y = doorPlanePoint.y - 12;
@@ -909,7 +872,7 @@ function updateCelestialBodies(time, delta) {
     marsMesh.rotation.y += delta * 0.04;
   }
   
-  // 土星（门外方向）
+  // 土星（门外方向 - 回头看）
   if (saturnMesh) {
     const saturnPos = doorPlanePoint.clone().addScaledVector(doorForward, -25).addScaledVector(doorRight, -15);
     saturnPos.y = doorPlanePoint.y + 10;
@@ -918,7 +881,7 @@ function updateCelestialBodies(time, delta) {
     if (saturnRingMesh) saturnRingMesh.position.copy(saturnPos);
   }
   
-  // 太阳（门外方向，远处）
+  // 太阳（门外方向更远 - 回头看）
   if (sunMesh) {
     const sunPos = doorPlanePoint.clone().addScaledVector(doorForward, -55).addScaledVector(doorRight, 25);
     sunPos.y = doorPlanePoint.y + 18;
@@ -929,16 +892,6 @@ function updateCelestialBodies(time, delta) {
       const glowScale = 40 + Math.sin(time * 0.5) * 3;
       sunGlowSprite.scale.set(glowScale, glowScale, 1);
     }
-  }
-  
-  // 银河漩涡（门外方向，比太阳更远，正中偏下）
-  if (milkyWayModel) {
-    const milkyPos = doorPlanePoint.clone()
-      .addScaledVector(doorForward, -75)  // 比太阳更远
-      .addScaledVector(doorRight, 0);      // 正中
-    milkyPos.y = doorPlanePoint.y - 5;    // 略微偏下
-    milkyWayModel.position.copy(milkyPos);
-    milkyWayModel.rotation.y += delta * 0.03; // 缓慢旋转
   }
   
   // 星座位置
@@ -1028,7 +981,6 @@ function reset() {
   if (saturnRingMesh) { scene.remove(saturnRingMesh); saturnRingMesh = null; }
   if (sunMesh) { scene.remove(sunMesh); sunMesh = null; }
   if (sunGlowSprite) { scene.remove(sunGlowSprite); sunGlowSprite = null; }
-  if (milkyWayModel) { scene.remove(milkyWayModel); milkyWayModel = null; }
   constellationGroups.forEach(g => scene.remove(g));
   constellationGroups = [];
   easterEggs.forEach(egg => scene.remove(egg));
