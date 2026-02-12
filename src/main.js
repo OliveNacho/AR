@@ -272,7 +272,7 @@ function spawnMeteor() {
 
 function createArcMeteor(startPos, baseDir, userCurvature, xrCam) {
   const group = new THREE.Group();
-  group.renderOrder = 100;
+  group.renderOrder = 200;
   
   const arcLength = 20 + Math.random() * 15;
   const arcBend = userCurvature + (Math.random() - 0.5) * 3;
@@ -311,7 +311,7 @@ function createArcMeteor(startPos, baseDir, userCurvature, xrCam) {
   });
   const coreSprite = new THREE.Sprite(coreMat);
   coreSprite.scale.set(1.0, 0.4, 1);
-  coreSprite.renderOrder = 102;
+  coreSprite.renderOrder = 202;
   group.add(coreSprite);
   
   // 内核亮点
@@ -326,7 +326,7 @@ function createArcMeteor(startPos, baseDir, userCurvature, xrCam) {
   });
   const innerSprite = new THREE.Sprite(innerMat);
   innerSprite.scale.set(0.5, 0.5, 1);
-  innerSprite.renderOrder = 103;
+  innerSprite.renderOrder = 203;
   group.add(innerSprite);
   
   // 外层光晕
@@ -341,10 +341,10 @@ function createArcMeteor(startPos, baseDir, userCurvature, xrCam) {
   });
   const glowSprite = new THREE.Sprite(glowMat);
   glowSprite.scale.set(1.5, 0.6, 1);
-  glowSprite.renderOrder = 101;
+  glowSprite.renderOrder = 201;
   group.add(glowSprite);
   
-  // ===== 拖尾粒子（修复版）=====
+  // ===== 拖尾粒子 =====
   const trailCount = 50;
   const trailPositions = new Float32Array(trailCount * 3);
   const trailColors = new Float32Array(trailCount * 3);
@@ -362,9 +362,10 @@ function createArcMeteor(startPos, baseDir, userCurvature, xrCam) {
   trailGeo.setAttribute("position", new THREE.BufferAttribute(trailPositions, 3));
   trailGeo.setAttribute("color", new THREE.BufferAttribute(trailColors, 3));
   
+  // 关键：使用 NormalBlending + 高亮度 代替 AdditiveBlending
   const trailMat = new THREE.PointsMaterial({
     map: starTexture,
-    size: 0.25,
+    size: 0.28,
     vertexColors: true,
     transparent: true,
     opacity: 1,
@@ -376,7 +377,7 @@ function createArcMeteor(startPos, baseDir, userCurvature, xrCam) {
   
   const trail = new THREE.Points(trailGeo, trailMat);
   trail.frustumCulled = false;
-  trail.renderOrder = 100;  // 与流星本体同级，高于天球
+  trail.renderOrder = 200;
   scene.add(trail);
   
   group.userData = {
@@ -731,16 +732,22 @@ function build() {
   doorGroup.add(ambientStars);
 
   if (USE_GLB_GALAXY) {
-    gltfLoader.load(`${BASE}models/galaxy.glb`, (gltf) => {
-      galaxyModel = gltf.scene;
-      galaxyModel.scale.setScalar(SKY_RADIUS * 0.5);
-      galaxyModel.traverse((c) => { if (c.isMesh) { c.material.transparent = true; c.material.opacity = 0; c.material.depthWrite = false; }});
-      galaxyModel.renderOrder = 1;
-      scene.add(galaxyModel);
-    }, undefined, () => { createPanoSphere(panoTexture); });
-  } else {
-    createPanoSphere(panoTexture);
-  }
+  gltfLoader.load(`${BASE}models/galaxy.glb`, (gltf) => {
+    galaxyModel = gltf.scene;
+    galaxyModel.scale.setScalar(SKY_RADIUS * 0.5);
+    galaxyModel.traverse((child) => {
+      if (child.isMesh) {
+        child.material.transparent = true;
+        child.material.opacity = 0;
+        child.material.depthWrite = false;
+        child.material.depthTest = true;  // 新增
+        child.renderOrder = 1;            // 新增：确保每个mesh都有低renderOrder
+      }
+    });
+    galaxyModel.renderOrder = 1;
+    scene.add(galaxyModel);
+  }, undefined, () => { createPanoSphere(panoTexture); });
+}
 
   starData = createStars(4000, SKY_RADIUS * 0.95, 0.22);
   skyStars = starData.points;
