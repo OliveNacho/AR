@@ -344,41 +344,32 @@ function createArcMeteor(startPos, baseDir, userCurvature, xrCam) {
   glowSprite.renderOrder = 201;
   group.add(glowSprite);
   
-  // ===== 拖尾粒子 =====
+  // ===== 拖尾：使用多个 Sprite 组成 =====
   const trailCount = 50;
-  const trailPositions = new Float32Array(trailCount * 3);
-  const trailColors = new Float32Array(trailCount * 3);
+  const trailSprites = [];
   
   for (let i = 0; i < trailCount; i++) {
-    trailPositions[i * 3] = startPos.x;
-    trailPositions[i * 3 + 1] = startPos.y;
-    trailPositions[i * 3 + 2] = startPos.z;
-    trailColors[i * 3] = 1;
-    trailColors[i * 3 + 1] = 1;
-    trailColors[i * 3 + 2] = 1;
+    const t = i / trailCount;
+    const size = 0.4 * Math.pow(1 - t, 0.8);  // 逐渐变小
+    
+    const spriteMat = new THREE.SpriteMaterial({
+      map: starTexture,
+      color: new THREE.Color(1, 1 - t * 0.3, 1 - t * 0.7),  // 白→黄→橙
+      transparent: true,
+      opacity: Math.pow(1 - t, 1.2),
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      depthTest: false,
+    });
+    
+    const sprite = new THREE.Sprite(spriteMat);
+    sprite.scale.set(size, size, 1);
+    sprite.position.copy(startPos);
+    sprite.renderOrder = 200;
+    sprite.visible = false;  // 初始不可见
+    scene.add(sprite);
+    trailSprites.push({ sprite, mat: spriteMat });
   }
-  
-  const trailGeo = new THREE.BufferGeometry();
-  trailGeo.setAttribute("position", new THREE.BufferAttribute(trailPositions, 3));
-  trailGeo.setAttribute("color", new THREE.BufferAttribute(trailColors, 3));
-  
-  // 关键：使用 NormalBlending + 高亮度 代替 AdditiveBlending
-  const trailMat = new THREE.PointsMaterial({
-    map: starTexture,
-    size: 0.28,
-    vertexColors: true,
-    transparent: true,
-    opacity: 1,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    depthTest: false,
-    sizeAttenuation: true,
-  });
-  
-  const trail = new THREE.Points(trailGeo, trailMat);
-  trail.frustumCulled = false;
-  trail.renderOrder = 200;
-  scene.add(trail);
   
   group.userData = {
     curve,
@@ -389,16 +380,12 @@ function createArcMeteor(startPos, baseDir, userCurvature, xrCam) {
     coreMat,
     innerMat,
     glowMat,
-    trailMat,
-    trailGeo,
-    trailPositions,
-    trailColors,
-    trail,
     history: [],
     coreSprite,
     innerSprite,
     glowSprite,
     trailCount,
+    trailSprites,
   };
   
   return group;
@@ -429,40 +416,23 @@ function updateMeteors(delta) {
     d.coreSprite.material.rotation = screenAngle;
     d.glowSprite.material.rotation = screenAngle;
     
-    // 拖尾历史
+    // 记录历史位置
     d.history.unshift(pos.clone());
     if (d.history.length > d.trailCount) d.history.pop();
     
-    // 更新拖尾位置和颜色
+    // ===== 更新拖尾 Sprites =====
     const historyLen = d.history.length;
     for (let j = 0; j < d.trailCount; j++) {
+      const ts = d.trailSprites[j];
       if (j < historyLen) {
-        const hp = d.history[j];
-        d.trailPositions[j * 3] = hp.x;
-        d.trailPositions[j * 3 + 1] = hp.y;
-        d.trailPositions[j * 3 + 2] = hp.z;
-        
-        const fadeProgress = j / d.trailCount;
-        const fade = Math.pow(1 - fadeProgress, 1.0);  // 更缓慢的衰减
-        
-        // 更亮的颜色
-        d.trailColors[j * 3] = fade;
-        d.trailColors[j * 3 + 1] = (1 - fadeProgress * 0.3) * fade;
-        d.trailColors[j * 3 + 2] = (1 - fadeProgress * 0.65) * fade;
+        ts.sprite.visible = true;
+        ts.sprite.position.copy(d.history[j]);
       } else {
-        // 未使用的点移到远处并设为透明
-        d.trailPositions[j * 3] = pos.x;
-        d.trailPositions[j * 3 + 1] = pos.y;
-        d.trailPositions[j * 3 + 2] = pos.z;
-        d.trailColors[j * 3] = 0;
-        d.trailColors[j * 3 + 1] = 0;
-        d.trailColors[j * 3 + 2] = 0;
+        ts.sprite.visible = false;
       }
     }
     
-    d.trailGeo.attributes.position.needsUpdate = true;
-    d.trailGeo.attributes.color.needsUpdate = true;
-    
+    // 生命周期淡入淡出
     const lifeRatio = d.life / d.maxLife;
     let opacity;
     if (lifeRatio < 0.08) {
@@ -474,11 +444,19 @@ function updateMeteors(delta) {
     d.coreMat.opacity = opacity;
     d.innerMat.opacity = opacity;
     d.glowMat.opacity = opacity * 0.4;
-    d.trailMat.opacity = opacity;
     
+    // 拖尾也淡出
+    for (let j = 0; j < d.trailSprites.length; j++) {
+      const ts = d.trailSprites[j];
+      const baseOpacity = Math.pow(1 - j / d.trailCount, 1.2);
+      ts.mat.opacity = baseOpacity * opacity;
+    }
+    
+    // 移除完成的流星
     if (d.life >= d.maxLife || d.progress >= 1) {
       scene.remove(m);
-      scene.remove(d.trail);
+      // 清理拖尾 sprites
+      d.trailSprites.forEach(ts => scene.remove(ts.sprite));
       meteors.splice(i, 1);
     }
   }
@@ -679,6 +657,8 @@ function createEasterEggs() {
 function build() {
   const texLoader = new THREE.TextureLoader();
   const gltfLoader = new GLTFLoader();
+  
+  // 提前加载 pano 纹理（两种模式都可能用到）
   const panoTexture = texLoader.load(`${BASE}textures/pano.jpg`);
   panoTexture.colorSpace = THREE.SRGBColorSpace;
 
@@ -731,23 +711,46 @@ function build() {
   ambientStars = ambientStarData.points;
   doorGroup.add(ambientStars);
 
+  // ===== 天空背景 =====
   if (USE_GLB_GALAXY) {
-  gltfLoader.load(`${BASE}models/galaxy.glb`, (gltf) => {
-    galaxyModel = gltf.scene;
-    galaxyModel.scale.setScalar(SKY_RADIUS * 0.5);
-    galaxyModel.traverse((child) => {
-      if (child.isMesh) {
-        child.material.transparent = true;
-        child.material.opacity = 0;
-        child.material.depthWrite = false;
-        child.material.depthTest = true;  // 新增
-        child.renderOrder = 1;            // 新增：确保每个mesh都有低renderOrder
-      }
+    gltfLoader.load(`${BASE}models/galaxy.glb`, (gltf) => {
+      galaxyModel = gltf.scene;
+      galaxyModel.scale.setScalar(SKY_RADIUS * 0.5);
+      galaxyModel.traverse((child) => {
+        if (child.isMesh) {
+          child.material.transparent = true;
+          child.material.opacity = 0;
+          child.material.depthWrite = false;
+          child.material.side = THREE.BackSide;  // 确保从内部可见
+          child.renderOrder = 1;
+        }
+      });
+      galaxyModel.renderOrder = 1;
+      scene.add(galaxyModel);
+    }, undefined, (err) => {
+      console.warn("GLB 加载失败，切换到 Pano:", err);
+      createPanoSphereInternal(panoTexture);
     });
-    galaxyModel.renderOrder = 1;
-    scene.add(galaxyModel);
-  }, undefined, () => { createPanoSphere(panoTexture); });
-}
+  } else {
+    createPanoSphereInternal(panoTexture);
+  }
+  
+  // 内部函数，确保 panoTexture 在作用域内
+  function createPanoSphereInternal(texture) {
+    skySphere = new THREE.Mesh(
+      new THREE.SphereGeometry(SKY_RADIUS, 64, 32),
+      new THREE.MeshBasicMaterial({
+        map: texture,
+        side: THREE.BackSide,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+      })
+    );
+    skySphere.rotation.y = Math.PI;
+    skySphere.renderOrder = 1;
+    scene.add(skySphere);
+  }
 
   starData = createStars(4000, SKY_RADIUS * 0.95, 0.22);
   skyStars = starData.points;
