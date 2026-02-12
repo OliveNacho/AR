@@ -1074,7 +1074,7 @@ function build() {
     moonMesh.material.color.set(0xffffff); 
     moonMesh.material.needsUpdate = true; 
   });
-  texLoader.load(`${BASE}textures/jupiter.jpg`, (tex) => { 
+  texLoader.load(`${BASE}textures/earth.jpg`, (tex) => { 
     tex.colorSpace = THREE.SRGBColorSpace; 
     jupiterMesh.material.map = tex; 
     jupiterMesh.material.color.set(0xffffff); 
