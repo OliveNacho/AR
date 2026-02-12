@@ -732,7 +732,7 @@ function createEasterEggs() {
     canvas.height = 64;
     const ctx = canvas.getContext("2d");
     ctx.clearRect(0, 0, 256, 64);
-    ctx.font = "24px Arial";
+    ctx.font = "124px Arial";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillStyle = "rgba(180, 180, 200, 0.3)";
