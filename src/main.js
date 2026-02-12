@@ -265,6 +265,54 @@ function spawnMeteor() {
 }
 
 
+// ============ 流星 ============
+function spawnMeteor() {
+  if (touchPoints.length < 3) {
+    return;
+  }
+  
+  const start = touchPoints[0];
+  const end = touchPoints[touchPoints.length - 1];
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  
+  if (len < 30) {
+    return;
+  }
+  
+  const xrCam = renderer.xr.getCamera(camera);
+  xrCam.getWorldPosition(_camPos);
+  
+  const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(xrCam.quaternion);
+  const camUp = new THREE.Vector3(0, 1, 0).applyQuaternion(xrCam.quaternion);
+  const camForward = new THREE.Vector3(0, 0, -1).applyQuaternion(xrCam.quaternion);
+  
+  // 修正：滑动方向映射到3D空间
+  const ndx = dx / len;  // 归一化
+  const ndy = dy / len;
+  
+  // 滑动方向 -> 飞行方向（更强的水平/垂直分量）
+  const flyDir = new THREE.Vector3()
+    .addScaledVector(camRight, ndx * 0.9)      // 水平方向
+    .addScaledVector(camUp, -ndy * 0.7)        // 垂直方向（屏幕Y轴反向）
+    .addScaledVector(camForward, 0.5)          // 向前飞
+    .normalize();
+  
+  // 生成起点：在滑动起始位置对应的方向
+  const spawnOffset = new THREE.Vector3()
+    .addScaledVector(camRight, -ndx * 3)       // 从滑动反方向开始
+    .addScaledVector(camUp, ndy * 2 + 3);      // 稍微偏上
+  
+  const spawnPos = _camPos.clone()
+    .add(camForward.clone().multiplyScalar(8 + Math.random() * 5))
+    .add(spawnOffset);
+  
+  const meteor = createArcMeteor(spawnPos, flyDir);
+  scene.add(meteor);
+  meteors.push(meteor);
+}
+
 function createArcMeteor(startPos, baseDir) {
   const group = new THREE.Group();
   
@@ -388,6 +436,78 @@ function createArcMeteor(startPos, baseDir) {
   };
   
   return group;
+}
+
+function updateMeteors(delta) {
+  for (let i = meteors.length - 1; i >= 0; i--) {
+    const m = meteors[i];
+    const d = m.userData;
+    
+    d.life += delta;
+    d.progress += d.speed * delta;
+    
+    const t = Math.min(d.progress, 1);
+    const pos = d.curve.getPoint(t);
+    
+    m.position.copy(pos);
+    
+    // 让流星朝向飞行方向
+    const tangent = d.curve.getTangent(t);
+    const angle = Math.atan2(tangent.y, Math.sqrt(tangent.x * tangent.x + tangent.z * tangent.z));
+    d.coreSprite.material.rotation = Math.atan2(-tangent.y, tangent.x);
+    d.glowSprite.material.rotation = d.coreSprite.material.rotation;
+    
+    // 记录历史位置（用于拖尾）
+    d.history.unshift(pos.clone());
+    if (d.history.length > 35) d.history.pop();
+    
+    // ===== 更新拖尾 =====
+    const historyLen = d.history.length;
+    for (let j = 0; j < 35; j++) {
+      if (j < historyLen) {
+        const hp = d.history[j];
+        d.trailPositions[j * 3] = hp.x;
+        d.trailPositions[j * 3 + 1] = hp.y;
+        d.trailPositions[j * 3 + 2] = hp.z;
+        
+        // 渐变：白 → 黄 → 橙，同时淡出
+        const fade = Math.pow(1 - j / 35, 1.5);
+        const colorT = j / 35;
+        
+        d.trailColors[j * 3] = fade;                          // R
+        d.trailColors[j * 3 + 1] = (1 - colorT * 0.3) * fade; // G
+        d.trailColors[j * 3 + 2] = (1 - colorT * 0.7) * fade; // B
+      } else {
+        d.trailColors[j * 3] = 0;
+        d.trailColors[j * 3 + 1] = 0;
+        d.trailColors[j * 3 + 2] = 0;
+      }
+    }
+    
+    d.trailGeo.attributes.position.needsUpdate = true;
+    d.trailGeo.attributes.color.needsUpdate = true;
+    
+    // 整体生命周期淡出
+    const lifeRatio = d.life / d.maxLife;
+    let opacity;
+    if (lifeRatio < 0.1) {
+      opacity = lifeRatio / 0.1;  // 淡入
+    } else {
+      opacity = Math.pow(1 - (lifeRatio - 0.1) / 0.9, 0.5);  // 淡出
+    }
+    
+    d.coreMat.opacity = opacity;
+    d.innerMat.opacity = opacity;
+    d.glowMat.opacity = opacity * 0.5;
+    d.trailMat.opacity = opacity;
+    
+    // 移除完成的流星
+    if (d.life >= d.maxLife || d.progress >= 1) {
+      scene.remove(m);
+      scene.remove(d.trail);
+      meteors.splice(i, 1);
+    }
+  }
 }
 
 function updateMeteors(delta) {
