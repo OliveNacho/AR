@@ -216,29 +216,9 @@ function createStarTexture() {
   return tex;
 }
 
-function createEllipseTexture() {
-  const w = 128, h = 64;
-  const canvas = document.createElement("canvas");
-  canvas.width = w; canvas.height = h;
-  const ctx = canvas.getContext("2d");
-  const gradient = ctx.createRadialGradient(w/2, h/2, 0, w/2, h/2, w/2);
-  gradient.addColorStop(0, "rgba(255,255,255,1)");
-  gradient.addColorStop(0.3, "rgba(255,250,240,0.7)");
-  gradient.addColorStop(0.6, "rgba(255,220,180,0.3)");
-  gradient.addColorStop(1, "rgba(255,200,150,0)");
-  ctx.fillStyle = gradient;
-  ctx.beginPath();
-  ctx.ellipse(w/2, h/2, w/2, h/2, 0, 0, Math.PI * 2);
-  ctx.fill();
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
 // ============ 流星 ============
 function spawnMeteor() {
   if (touchPoints.length < 3) {
-    log("spawnMeteor: 点数不足");
     return;
   }
   
@@ -248,10 +228,7 @@ function spawnMeteor() {
   const dy = end.y - start.y;
   const len = Math.sqrt(dx * dx + dy * dy);
   
-  log(`滑动: dx=${dx.toFixed(0)}, dy=${dy.toFixed(0)}, len=${len.toFixed(0)}`);
-  
   if (len < 30) {
-    log("滑动距离太短");
     return;
   }
   
@@ -262,70 +239,154 @@ function spawnMeteor() {
   const camUp = new THREE.Vector3(0, 1, 0).applyQuaternion(xrCam.quaternion);
   const camForward = new THREE.Vector3(0, 0, -1).applyQuaternion(xrCam.quaternion);
   
+  // 修正：滑动方向映射到3D空间
+  const ndx = dx / len;  // 归一化
+  const ndy = dy / len;
+  
+  // 滑动方向 -> 飞行方向（更强的水平/垂直分量）
   const flyDir = new THREE.Vector3()
-    .addScaledVector(camRight, dx / len)
-    .addScaledVector(camUp, -dy / len)
-    .addScaledVector(camForward, 0.2)
+    .addScaledVector(camRight, ndx * 0.9)      // 水平方向
+    .addScaledVector(camUp, -ndy * 0.7)        // 垂直方向（屏幕Y轴反向）
+    .addScaledVector(camForward, 0.5)          // 向前飞
     .normalize();
   
+  // 生成起点：在滑动起始位置对应的方向
+  const spawnOffset = new THREE.Vector3()
+    .addScaledVector(camRight, -ndx * 3)       // 从滑动反方向开始
+    .addScaledVector(camUp, ndy * 2 + 3);      // 稍微偏上
+  
   const spawnPos = _camPos.clone()
-    .add(camForward.clone().multiplyScalar(12 + Math.random() * 8))
-    .add(camUp.clone().multiplyScalar(4 + Math.random() * 4))
-    .add(camRight.clone().multiplyScalar((Math.random() - 0.5) * 10));
+    .add(camForward.clone().multiplyScalar(8 + Math.random() * 5))
+    .add(spawnOffset);
   
   const meteor = createArcMeteor(spawnPos, flyDir);
   scene.add(meteor);
   meteors.push(meteor);
-  
-  log("✨ 流星已生成!");
 }
+
 
 function createArcMeteor(startPos, baseDir) {
   const group = new THREE.Group();
   
-  const arcLength = 10 + Math.random() * 6;
-  const arcBend = (Math.random() - 0.5) * 1.5;
-  const gravity = -0.4 - Math.random() * 0.3;
+  // 弧线参数
+  const arcLength = 15 + Math.random() * 10;  // 更长的轨迹
+  const arcBend = (Math.random() - 0.5) * 1.0;
+  const gravity = -0.25 - Math.random() * 0.15;  // 轻微下坠
   
   let perpendicular = new THREE.Vector3().crossVectors(baseDir, new THREE.Vector3(0, 1, 0));
   if (perpendicular.length() < 0.1) perpendicular.set(1, 0, 0);
   perpendicular.normalize();
   
   const p0 = startPos.clone();
-  const p1 = startPos.clone().addScaledVector(baseDir, arcLength * 0.33).addScaledVector(perpendicular, arcBend).add(new THREE.Vector3(0, gravity * arcLength * 0.3, 0));
-  const p2 = startPos.clone().addScaledVector(baseDir, arcLength * 0.66).addScaledVector(perpendicular, arcBend * 0.5).add(new THREE.Vector3(0, gravity * arcLength * 0.7, 0));
-  const p3 = startPos.clone().addScaledVector(baseDir, arcLength).add(new THREE.Vector3(0, gravity * arcLength * 1.2, 0));
+  const p1 = startPos.clone()
+    .addScaledVector(baseDir, arcLength * 0.33)
+    .addScaledVector(perpendicular, arcBend)
+    .add(new THREE.Vector3(0, gravity * arcLength * 0.2, 0));
+  const p2 = startPos.clone()
+    .addScaledVector(baseDir, arcLength * 0.66)
+    .addScaledVector(perpendicular, arcBend * 0.5)
+    .add(new THREE.Vector3(0, gravity * arcLength * 0.5, 0));
+  const p3 = startPos.clone()
+    .addScaledVector(baseDir, arcLength)
+    .add(new THREE.Vector3(0, gravity * arcLength * 1.0, 0));
   
   const curve = new THREE.CubicBezierCurve3(p0, p1, p2, p3);
   
-  const ellipseTex = createEllipseTexture();
-  const coreMat = new THREE.SpriteMaterial({ map: ellipseTex, color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending });
+  // ===== 流星核心：使用圆形纹理 + scale 变形 =====
+  const coreMat = new THREE.SpriteMaterial({
+    map: starTexture,
+    color: 0xffffff,
+    transparent: true,
+    opacity: 1,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
   const coreSprite = new THREE.Sprite(coreMat);
-  coreSprite.scale.set(0.5, 0.2, 1);
+  coreSprite.scale.set(0.6, 0.2, 1);  // 椭圆形
   group.add(coreSprite);
   
-  const innerMat = new THREE.SpriteMaterial({ map: starTexture, color: 0xffffff, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending });
+  // 内核亮点
+  const innerMat = new THREE.SpriteMaterial({
+    map: starTexture,
+    color: 0xffffff,
+    transparent: true,
+    opacity: 1,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
   const innerSprite = new THREE.Sprite(innerMat);
-  innerSprite.scale.set(0.15, 0.15, 1);
+  innerSprite.scale.set(0.25, 0.25, 1);
+  innerSprite.position.set(-0.1, 0, 0);  // 稍微偏向尾部
   group.add(innerSprite);
   
-  const trailCount = 20;
+  // 外层光晕
+  const glowMat = new THREE.SpriteMaterial({
+    map: starTexture,
+    color: 0xffffee,
+    transparent: true,
+    opacity: 0.5,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const glowSprite = new THREE.Sprite(glowMat);
+  glowSprite.scale.set(0.9, 0.35, 1);
+  group.add(glowSprite);
+  
+  // ===== 拖尾粒子 =====
+  const trailCount = 35;
   const trailPositions = new Float32Array(trailCount * 3);
   const trailColors = new Float32Array(trailCount * 3);
+  const trailSizes = new Float32Array(trailCount);
+  
   for (let i = 0; i < trailCount; i++) {
-    trailColors[i * 3] = trailColors[i * 3 + 1] = trailColors[i * 3 + 2] = 1;
+    trailPositions[i * 3] = startPos.x;
+    trailPositions[i * 3 + 1] = startPos.y;
+    trailPositions[i * 3 + 2] = startPos.z;
+    trailColors[i * 3] = 1;
+    trailColors[i * 3 + 1] = 1;
+    trailColors[i * 3 + 2] = 1;
+    trailSizes[i] = 0.15 * (1 - i / trailCount);
   }
   
   const trailGeo = new THREE.BufferGeometry();
   trailGeo.setAttribute("position", new THREE.BufferAttribute(trailPositions, 3));
   trailGeo.setAttribute("color", new THREE.BufferAttribute(trailColors, 3));
   
-  const trailMat = new THREE.PointsMaterial({ map: starTexture, size: 0.08, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true });
+  const trailMat = new THREE.PointsMaterial({
+    map: starTexture,
+    size: 0.15,
+    vertexColors: true,
+    transparent: true,
+    opacity: 1,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    sizeAttenuation: true,
+  });
+  
   const trail = new THREE.Points(trailGeo, trailMat);
   trail.frustumCulled = false;
   scene.add(trail);
   
-  group.userData = { curve, progress: 0, speed: 0.06 + Math.random() * 0.02, life: 0, maxLife: 5 + Math.random() * 2, coreMat, innerMat, trailMat, trailGeo, trailPositions, trailColors, trail, history: [], coreSprite };
+  group.userData = {
+    curve,
+    progress: 0,
+    speed: 0.15 + Math.random() * 0.05,  // 加快速度！
+    life: 0,
+    maxLife: 3 + Math.random() * 1.5,
+    coreMat,
+    innerMat,
+    glowMat,
+    trailMat,
+    trailGeo,
+    trailPositions,
+    trailColors,
+    trail,
+    history: [],
+    coreSprite,
+    glowSprite,
+    baseDir,
+  };
+  
   return group;
 }
 
@@ -339,40 +400,60 @@ function updateMeteors(delta) {
     
     const t = Math.min(d.progress, 1);
     const pos = d.curve.getPoint(t);
+    
     m.position.copy(pos);
     
+    // 让流星朝向飞行方向
     const tangent = d.curve.getTangent(t);
     const angle = Math.atan2(tangent.y, Math.sqrt(tangent.x * tangent.x + tangent.z * tangent.z));
-    d.coreSprite.material.rotation = -angle;
+    d.coreSprite.material.rotation = Math.atan2(-tangent.y, tangent.x);
+    d.glowSprite.material.rotation = d.coreSprite.material.rotation;
     
+    // 记录历史位置（用于拖尾）
     d.history.unshift(pos.clone());
-    if (d.history.length > 20) d.history.pop();
+    if (d.history.length > 35) d.history.pop();
     
-    for (let j = 0; j < 20; j++) {
-      if (j < d.history.length) {
+    // ===== 更新拖尾 =====
+    const historyLen = d.history.length;
+    for (let j = 0; j < 35; j++) {
+      if (j < historyLen) {
         const hp = d.history[j];
         d.trailPositions[j * 3] = hp.x;
         d.trailPositions[j * 3 + 1] = hp.y;
         d.trailPositions[j * 3 + 2] = hp.z;
-        const fade = Math.pow(1 - j / 20, 2.2);
-        const ct = j / 20;
-        d.trailColors[j * 3] = fade;
-        d.trailColors[j * 3 + 1] = (1 - ct * 0.15) * fade;
-        d.trailColors[j * 3 + 2] = (1 - ct * 0.4) * fade;
+        
+        // 渐变：白 → 黄 → 橙，同时淡出
+        const fade = Math.pow(1 - j / 35, 1.5);
+        const colorT = j / 35;
+        
+        d.trailColors[j * 3] = fade;                          // R
+        d.trailColors[j * 3 + 1] = (1 - colorT * 0.3) * fade; // G
+        d.trailColors[j * 3 + 2] = (1 - colorT * 0.7) * fade; // B
       } else {
-        d.trailColors[j * 3] = d.trailColors[j * 3 + 1] = d.trailColors[j * 3 + 2] = 0;
+        d.trailColors[j * 3] = 0;
+        d.trailColors[j * 3 + 1] = 0;
+        d.trailColors[j * 3 + 2] = 0;
       }
     }
     
     d.trailGeo.attributes.position.needsUpdate = true;
     d.trailGeo.attributes.color.needsUpdate = true;
     
-    const progress = d.life / d.maxLife;
-    const fade = progress < 0.1 ? progress / 0.1 : Math.pow(1 - (progress - 0.1) / 0.9, 0.5);
-    d.coreMat.opacity = fade;
-    d.innerMat.opacity = fade * 0.9;
-    d.trailMat.opacity = fade;
+    // 整体生命周期淡出
+    const lifeRatio = d.life / d.maxLife;
+    let opacity;
+    if (lifeRatio < 0.1) {
+      opacity = lifeRatio / 0.1;  // 淡入
+    } else {
+      opacity = Math.pow(1 - (lifeRatio - 0.1) / 0.9, 0.5);  // 淡出
+    }
     
+    d.coreMat.opacity = opacity;
+    d.innerMat.opacity = opacity;
+    d.glowMat.opacity = opacity * 0.5;
+    d.trailMat.opacity = opacity;
+    
+    // 移除完成的流星
     if (d.life >= d.maxLife || d.progress >= 1) {
       scene.remove(m);
       scene.remove(d.trail);
