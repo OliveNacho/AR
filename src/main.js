@@ -53,7 +53,6 @@ let floatingStarData = null;
 let brightStarData = null;
 let ambientStarData = null;
 
-// 流星
 let meteors = [];
 let touchPoints = [];
 let isTouching = false;
@@ -138,10 +137,7 @@ function initTouchEvents() {
   canvas.addEventListener("touchend", () => {
     if (!isTouching) return;
     isTouching = false;
-    
-    if (isInside && touchPoints.length >= 3) {
-      spawnMeteor();
-    }
+    if (isInside && touchPoints.length >= 3) spawnMeteor();
     touchPoints = [];
   }, { passive: true });
 }
@@ -179,14 +175,12 @@ function createStarTexture() {
   return tex;
 }
 
-// ============ 创建太阳光晕纹理 ============
 function createSunGlowTexture() {
   const size = 256;
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext("2d");
   const cx = size / 2;
-  
   const gradient = ctx.createRadialGradient(cx, cx, 0, cx, cx, cx);
   gradient.addColorStop(0, "rgba(255,255,200,1)");
   gradient.addColorStop(0.1, "rgba(255,240,150,0.8)");
@@ -194,12 +188,10 @@ function createSunGlowTexture() {
   gradient.addColorStop(0.5, "rgba(255,150,50,0.15)");
   gradient.addColorStop(0.7, "rgba(255,100,30,0.05)");
   gradient.addColorStop(1, "rgba(255,50,0,0)");
-  
   ctx.fillStyle = gradient;
   ctx.beginPath();
   ctx.arc(cx, cx, cx, 0, Math.PI * 2);
   ctx.fill();
-  
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
@@ -208,13 +200,11 @@ function createSunGlowTexture() {
 // ============ 流星系统 ============
 function spawnMeteor() {
   if (touchPoints.length < 3) return;
-  
   const start = touchPoints[0];
   const end = touchPoints[touchPoints.length - 1];
   const dx = end.x - start.x;
   const dy = end.y - start.y;
   const len = Math.sqrt(dx * dx + dy * dy);
-  
   if (len < 30) return;
   
   let userCurvature = 0;
@@ -231,11 +221,9 @@ function spawnMeteor() {
   
   const xrCam = renderer.xr.getCamera(camera);
   xrCam.getWorldPosition(_camPos);
-  
   const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(xrCam.quaternion);
   const camUp = new THREE.Vector3(0, 1, 0).applyQuaternion(xrCam.quaternion);
   const camForward = new THREE.Vector3(0, 0, -1).applyQuaternion(xrCam.quaternion);
-  
   const ndx = dx / len;
   const ndy = dy / len;
   
@@ -258,11 +246,9 @@ function spawnMeteor() {
 function spawnMeteorShower() {
   const xrCam = renderer.xr.getCamera(camera);
   xrCam.getWorldPosition(_camPos);
-  
   const camForward = new THREE.Vector3(0, 0, -1).applyQuaternion(xrCam.quaternion);
   const camUp = new THREE.Vector3(0, 1, 0).applyQuaternion(xrCam.quaternion);
   const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(xrCam.quaternion);
-  
   const meteorCount = 60 + Math.floor(Math.random() * 20);
   
   for (let i = 0; i < meteorCount; i++) {
@@ -270,23 +256,16 @@ function spawnMeteorShower() {
       const horizontalBias = 0.8 + Math.random() * 0.4;
       const fromLeft = Math.random() > 0.5;
       const sideOffset = fromLeft ? -1 : 1;
-      
       const spawnPos = _camPos.clone()
         .add(camForward.clone().multiplyScalar(10 + Math.random() * 25))
         .add(camRight.clone().multiplyScalar(sideOffset * (15 + Math.random() * 10)))
         .add(camUp.clone().multiplyScalar(5 + Math.random() * 15))
-        .add(new THREE.Vector3(
-          (Math.random() - 0.5) * 8,
-          (Math.random() - 0.5) * 5,
-          (Math.random() - 0.5) * 8
-        ));
-      
+        .add(new THREE.Vector3((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 5, (Math.random() - 0.5) * 8));
       const flyDir = new THREE.Vector3()
         .addScaledVector(camRight, -sideOffset * horizontalBias)
         .addScaledVector(camUp, -0.15 - Math.random() * 0.2)
         .addScaledVector(camForward, (Math.random() - 0.5) * 0.3)
         .normalize();
-      
       const curvature = (Math.random() - 0.5) * 2;
       const meteor = createArcMeteor(spawnPos, flyDir, curvature);
       scene.add(meteor);
@@ -298,69 +277,33 @@ function spawnMeteorShower() {
 function createArcMeteor(startPos, baseDir, userCurvature) {
   const group = new THREE.Group();
   group.renderOrder = 200;
-  
   const arcLength = 20 + Math.random() * 15;
   const arcBend = userCurvature + (Math.random() - 0.5) * 3;
   const gravity = -0.35 - Math.random() * 0.25;
   
   let perpendicular = new THREE.Vector3().crossVectors(baseDir, new THREE.Vector3(0, 1, 0));
-  if (perpendicular.length() < 0.1) {
-    perpendicular.crossVectors(baseDir, new THREE.Vector3(1, 0, 0));
-  }
+  if (perpendicular.length() < 0.1) perpendicular.crossVectors(baseDir, new THREE.Vector3(1, 0, 0));
   perpendicular.normalize();
   
   const p0 = startPos.clone();
-  const p1 = startPos.clone()
-    .addScaledVector(baseDir, arcLength * 0.3)
-    .addScaledVector(perpendicular, arcBend * 1.2)
-    .add(new THREE.Vector3(0, gravity * arcLength * 0.1, 0));
-  const p2 = startPos.clone()
-    .addScaledVector(baseDir, arcLength * 0.65)
-    .addScaledVector(perpendicular, arcBend * 0.6)
-    .add(new THREE.Vector3(0, gravity * arcLength * 0.35, 0));
-  const p3 = startPos.clone()
-    .addScaledVector(baseDir, arcLength)
-    .add(new THREE.Vector3(0, gravity * arcLength * 0.75, 0));
-  
+  const p1 = startPos.clone().addScaledVector(baseDir, arcLength * 0.3).addScaledVector(perpendicular, arcBend * 1.2).add(new THREE.Vector3(0, gravity * arcLength * 0.1, 0));
+  const p2 = startPos.clone().addScaledVector(baseDir, arcLength * 0.65).addScaledVector(perpendicular, arcBend * 0.6).add(new THREE.Vector3(0, gravity * arcLength * 0.35, 0));
+  const p3 = startPos.clone().addScaledVector(baseDir, arcLength).add(new THREE.Vector3(0, gravity * arcLength * 0.75, 0));
   const curve = new THREE.CubicBezierCurve3(p0, p1, p2, p3);
   
-  const coreMat = new THREE.SpriteMaterial({
-    map: starTexture,
-    color: 0xffffff,
-    transparent: true,
-    opacity: 1,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    depthTest: false,
-  });
+  const coreMat = new THREE.SpriteMaterial({ map: starTexture, color: 0xffffff, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false });
   const coreSprite = new THREE.Sprite(coreMat);
   coreSprite.scale.set(1.0, 0.4, 1);
   coreSprite.renderOrder = 202;
   group.add(coreSprite);
   
-  const innerMat = new THREE.SpriteMaterial({
-    map: starTexture,
-    color: 0xffffff,
-    transparent: true,
-    opacity: 1,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    depthTest: false,
-  });
+  const innerMat = new THREE.SpriteMaterial({ map: starTexture, color: 0xffffff, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false });
   const innerSprite = new THREE.Sprite(innerMat);
   innerSprite.scale.set(0.5, 0.5, 1);
   innerSprite.renderOrder = 203;
   group.add(innerSprite);
   
-  const glowMat = new THREE.SpriteMaterial({
-    map: starTexture,
-    color: 0xffffee,
-    transparent: true,
-    opacity: 0.4,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    depthTest: false,
-  });
+  const glowMat = new THREE.SpriteMaterial({ map: starTexture, color: 0xffffee, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false });
   const glowSprite = new THREE.Sprite(glowMat);
   glowSprite.scale.set(1.5, 0.6, 1);
   glowSprite.renderOrder = 201;
@@ -368,21 +311,10 @@ function createArcMeteor(startPos, baseDir, userCurvature) {
   
   const trailCount = 50;
   const trailSprites = [];
-  
   for (let i = 0; i < trailCount; i++) {
     const t = i / trailCount;
     const size = 0.4 * Math.pow(1 - t, 0.8);
-    
-    const spriteMat = new THREE.SpriteMaterial({
-      map: starTexture,
-      color: new THREE.Color(1, 1 - t * 0.3, 1 - t * 0.7),
-      transparent: true,
-      opacity: Math.pow(1 - t, 1.2),
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      depthTest: false,
-    });
-    
+    const spriteMat = new THREE.SpriteMaterial({ map: starTexture, color: new THREE.Color(1, 1 - t * 0.3, 1 - t * 0.7), transparent: true, opacity: Math.pow(1 - t, 1.2), blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false });
     const sprite = new THREE.Sprite(spriteMat);
     sprite.scale.set(size, size, 1);
     sprite.position.copy(startPos);
@@ -392,23 +324,7 @@ function createArcMeteor(startPos, baseDir, userCurvature) {
     trailSprites.push({ sprite, mat: spriteMat });
   }
   
-  group.userData = {
-    curve,
-    progress: 0,
-    speed: 0.10 + Math.random() * 0.04,
-    life: 0,
-    maxLife: 4.5 + Math.random() * 2,
-    coreMat,
-    innerMat,
-    glowMat,
-    history: [],
-    coreSprite,
-    innerSprite,
-    glowSprite,
-    trailCount,
-    trailSprites,
-  };
-  
+  group.userData = { curve, progress: 0, speed: 0.10 + Math.random() * 0.04, life: 0, maxLife: 4.5 + Math.random() * 2, coreMat, innerMat, glowMat, history: [], coreSprite, innerSprite, glowSprite, trailCount, trailSprites };
   return group;
 }
 
@@ -420,55 +336,35 @@ function updateMeteors(delta) {
   for (let i = meteors.length - 1; i >= 0; i--) {
     const m = meteors[i];
     const d = m.userData;
-    
     d.life += delta;
     d.progress += d.speed * delta;
-    
     const t = Math.min(d.progress, 1);
     const pos = d.curve.getPoint(t);
     const tangent = d.curve.getTangent(t).normalize();
-    
     m.position.copy(pos);
-    
     const tangentScreenX = tangent.dot(camRight);
     const tangentScreenY = tangent.dot(camUp);
     const screenAngle = Math.atan2(tangentScreenY, tangentScreenX);
-    
     d.coreSprite.material.rotation = screenAngle;
     d.glowSprite.material.rotation = screenAngle;
-    
     d.history.unshift(pos.clone());
     if (d.history.length > d.trailCount) d.history.pop();
-    
     const historyLen = d.history.length;
     for (let j = 0; j < d.trailCount; j++) {
       const ts = d.trailSprites[j];
-      if (j < historyLen) {
-        ts.sprite.visible = true;
-        ts.sprite.position.copy(d.history[j]);
-      } else {
-        ts.sprite.visible = false;
-      }
+      if (j < historyLen) { ts.sprite.visible = true; ts.sprite.position.copy(d.history[j]); }
+      else ts.sprite.visible = false;
     }
-    
     const lifeRatio = d.life / d.maxLife;
-    let opacity;
-    if (lifeRatio < 0.08) {
-      opacity = lifeRatio / 0.08;
-    } else {
-      opacity = Math.pow(1 - (lifeRatio - 0.08) / 0.92, 0.6);
-    }
-    
+    let opacity = lifeRatio < 0.08 ? lifeRatio / 0.08 : Math.pow(1 - (lifeRatio - 0.08) / 0.92, 0.6);
     d.coreMat.opacity = opacity;
     d.innerMat.opacity = opacity;
     d.glowMat.opacity = opacity * 0.4;
-    
     for (let j = 0; j < d.trailSprites.length; j++) {
       const ts = d.trailSprites[j];
       const baseOpacity = Math.pow(1 - j / d.trailCount, 1.2);
       ts.mat.opacity = baseOpacity * opacity;
     }
-    
     if (d.life >= d.maxLife || d.progress >= 1) {
       scene.remove(m);
       d.trailSprites.forEach(ts => scene.remove(ts.sprite));
@@ -477,16 +373,9 @@ function updateMeteors(delta) {
   }
 }
 
-// ============ 星星颜色 ============
+// ============ 星星 ============
 function getRandomStarColor() {
-  const colors = [
-    [1, 1, 1],
-    [0.7, 0.85, 1],
-    [1, 0.9, 0.5],
-    [0.9, 0.95, 1],
-    [1, 0.95, 0.6],
-    [0.85, 0.9, 1],
-  ];
+  const colors = [[1, 1, 1], [0.7, 0.85, 1], [1, 0.9, 0.5], [0.9, 0.95, 1], [1, 0.95, 0.6], [0.85, 0.9, 1]];
   return colors[Math.floor(Math.random() * colors.length)];
 }
 
@@ -494,7 +383,6 @@ function createStars(count, radius, baseSize) {
   const positions = new Float32Array(count * 3);
   const colors = new Float32Array(count * 3);
   const phases = new Float32Array(count * 4);
-  
   for (let i = 0; i < count; i++) {
     const theta = Math.random() * Math.PI * 2;
     const phi = Math.acos(2 * Math.random() - 1);
@@ -502,10 +390,8 @@ function createStars(count, radius, baseSize) {
     positions[i*3] = r * Math.sin(phi) * Math.cos(theta);
     positions[i*3+1] = r * Math.cos(phi);
     positions[i*3+2] = r * Math.sin(phi) * Math.sin(theta);
-    
     const c = getRandomStarColor();
     colors[i*3] = c[0]; colors[i*3+1] = c[1]; colors[i*3+2] = c[2];
-    
     phases[i*4] = Math.random() * Math.PI * 2;
     phases[i*4+1] = 0.5 + Math.random() * 2;
     phases[i*4+2] = Math.random() * Math.PI * 2;
@@ -514,15 +400,7 @@ function createStars(count, radius, baseSize) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-  const mat = new THREE.PointsMaterial({ 
-    map: starTexture, 
-    size: baseSize, 
-    vertexColors: true, 
-    transparent: true, 
-    depthWrite: false, 
-    blending: THREE.AdditiveBlending, 
-    sizeAttenuation: true 
-  });
+  const mat = new THREE.PointsMaterial({ map: starTexture, size: baseSize, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true });
   const points = new THREE.Points(geo, mat);
   points.frustumCulled = false;
   return { points, positions: positions.slice(), colors: colors.slice(), phases };
@@ -532,7 +410,6 @@ function createFloatingStars(count, minR, maxR, baseSize) {
   const positions = new Float32Array(count * 3);
   const colors = new Float32Array(count * 3);
   const phases = new Float32Array(count * 4);
-  
   for (let i = 0; i < count; i++) {
     const theta = Math.random() * Math.PI * 2;
     const phi = Math.acos(2 * Math.random() - 1);
@@ -540,10 +417,8 @@ function createFloatingStars(count, minR, maxR, baseSize) {
     positions[i*3] = r * Math.sin(phi) * Math.cos(theta);
     positions[i*3+1] = r * Math.cos(phi);
     positions[i*3+2] = r * Math.sin(phi) * Math.sin(theta);
-    
     const c = getRandomStarColor();
     colors[i*3] = c[0]; colors[i*3+1] = c[1]; colors[i*3+2] = c[2];
-    
     phases[i*4] = Math.random() * Math.PI * 2;
     phases[i*4+1] = 0.3 + Math.random() * 1.5;
     phases[i*4+2] = Math.random() * Math.PI * 2;
@@ -552,15 +427,7 @@ function createFloatingStars(count, minR, maxR, baseSize) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-  const mat = new THREE.PointsMaterial({ 
-    map: starTexture, 
-    size: baseSize, 
-    vertexColors: true, 
-    transparent: true, 
-    depthWrite: false, 
-    blending: THREE.AdditiveBlending, 
-    sizeAttenuation: true 
-  });
+  const mat = new THREE.PointsMaterial({ map: starTexture, size: baseSize, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true });
   const points = new THREE.Points(geo, mat);
   points.frustumCulled = false;
   return { points, positions: positions.slice(), colors: colors.slice(), phases };
@@ -570,7 +437,6 @@ function createBrightStars(count, radius) {
   const positions = new Float32Array(count * 3);
   const colors = new Float32Array(count * 3);
   const phases = new Float32Array(count * 2);
-  
   for (let i = 0; i < count; i++) {
     const theta = Math.random() * Math.PI * 2;
     const phi = Math.acos(2 * Math.random() - 1);
@@ -578,25 +444,15 @@ function createBrightStars(count, radius) {
     positions[i*3] = r * Math.sin(phi) * Math.cos(theta);
     positions[i*3+1] = r * Math.cos(phi);
     positions[i*3+2] = r * Math.sin(phi) * Math.sin(theta);
-    
     const c = getRandomStarColor();
     colors[i*3] = c[0]; colors[i*3+1] = c[1]; colors[i*3+2] = c[2];
-    
     phases[i*2] = Math.random() * Math.PI * 2;
     phases[i*2+1] = 0.2 + Math.random() * 0.6;
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-  const mat = new THREE.PointsMaterial({ 
-    map: starTexture, 
-    size: 1.0, 
-    vertexColors: true, 
-    transparent: true, 
-    depthWrite: false, 
-    blending: THREE.AdditiveBlending, 
-    sizeAttenuation: true 
-  });
+  const mat = new THREE.PointsMaterial({ map: starTexture, size: 1.0, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true });
   const points = new THREE.Points(geo, mat);
   points.frustumCulled = false;
   return { points, positions: positions.slice(), colors: colors.slice(), phases };
@@ -606,18 +462,13 @@ function createAmbientStars(count) {
   const positions = new Float32Array(count * 3);
   const colors = new Float32Array(count * 3);
   const phases = new Float32Array(count * 4);
-  
   for (let i = 0; i < count; i++) {
     positions[i*3] = (Math.random() - 0.5) * 5;
     positions[i*3+1] = 0.3 + Math.random() * 2.5;
     positions[i*3+2] = -0.5 - Math.random() * 3;
-    
     const c = getRandomStarColor();
     const brightness = 0.8 + Math.random() * 0.2;
-    colors[i*3] = c[0] * brightness;
-    colors[i*3+1] = c[1] * brightness;
-    colors[i*3+2] = c[2] * brightness;
-    
+    colors[i*3] = c[0] * brightness; colors[i*3+1] = c[1] * brightness; colors[i*3+2] = c[2] * brightness;
     phases[i*4] = Math.random() * Math.PI * 2;
     phases[i*4+1] = 0.5 + Math.random() * 2;
     phases[i*4+2] = Math.random() * Math.PI * 2;
@@ -626,16 +477,7 @@ function createAmbientStars(count) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-  const mat = new THREE.PointsMaterial({ 
-    map: starTexture, 
-    size: 0.08, 
-    vertexColors: true, 
-    transparent: true, 
-    opacity: 0.9, 
-    depthWrite: false, 
-    blending: THREE.AdditiveBlending, 
-    sizeAttenuation: true 
-  });
+  const mat = new THREE.PointsMaterial({ map: starTexture, size: 0.08, vertexColors: true, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true });
   const points = new THREE.Points(geo, mat);
   points.frustumCulled = false;
   return { points, positions: positions.slice(), colors: colors.slice(), phases };
@@ -666,7 +508,6 @@ function updateFloatingStars(data, time) {
     col[i*3] = Math.min(1, colors[i*3] * twinkle * 1.3);
     col[i*3+1] = Math.min(1, colors[i*3+1] * twinkle * 1.3);
     col[i*3+2] = Math.min(1, colors[i*3+2] * twinkle * 1.3);
-    
     const drift = 0.3;
     pos[i*3] = positions[i*3] + Math.sin(time * 0.1 + phases[i*4+2]) * drift;
     pos[i*3+1] = positions[i*3+1] + Math.sin(time * 0.08 + phases[i*4]) * drift * 0.3;
@@ -690,184 +531,30 @@ function updateBrightStars(data, time) {
   points.geometry.attributes.color.needsUpdate = true;
 }
 
-// ============ 12星座数据 ============
+// ============ 12星座 ============
 function getConstellationsData() {
   return [
-    {
-      name: "Aries",
-      stars: [
-        { x: 0, y: 0, z: 0, size: 0.6 },
-        { x: 1.2, y: 0.3, z: 0.1, size: 0.5 },
-        { x: 2.2, y: 0.8, z: 0, size: 0.55 },
-        { x: 3, y: 0.4, z: -0.1, size: 0.45 },
-      ],
-      lines: [[0,1], [1,2], [2,3]],
-      position: { forward: 25, right: 10, up: 12 }
-    },
-    {
-      name: "Taurus",
-      stars: [
-        { x: 0, y: 0, z: 0, size: 0.7 },
-        { x: -1.5, y: 0.8, z: 0.1, size: 0.5 },
-        { x: -0.8, y: 1.2, z: 0, size: 0.45 },
-        { x: 0.5, y: 1.5, z: -0.1, size: 0.5 },
-        { x: 1.5, y: 1.2, z: 0, size: 0.45 },
-        { x: -2, y: -0.5, z: 0.2, size: 0.4 },
-        { x: -1, y: -0.8, z: 0.1, size: 0.4 },
-      ],
-      lines: [[0,1], [0,2], [0,3], [0,4], [0,5], [5,6]],
-      position: { forward: 20, right: -25, up: 5 }
-    },
-    {
-      name: "Gemini",
-      stars: [
-        { x: 0, y: 2, z: 0, size: 0.65 },
-        { x: 1.5, y: 2.2, z: 0.1, size: 0.65 },
-        { x: 0.2, y: 1, z: 0, size: 0.45 },
-        { x: 1.3, y: 1, z: 0.1, size: 0.45 },
-        { x: 0.3, y: 0, z: -0.1, size: 0.4 },
-        { x: 1.2, y: -0.2, z: 0, size: 0.4 },
-      ],
-      lines: [[0,2], [2,4], [1,3], [3,5], [0,1]],
-      position: { forward: 22, right: 20, up: -8 }
-    },
-    {
-      name: "Cancer",
-      stars: [
-        { x: 0, y: 0, z: 0, size: 0.5 },
-        { x: 1, y: 0.5, z: 0.1, size: 0.45 },
-        { x: -0.8, y: 0.8, z: 0, size: 0.45 },
-        { x: 0.5, y: -0.8, z: -0.1, size: 0.4 },
-        { x: -0.5, y: -0.5, z: 0.1, size: 0.4 },
-      ],
-      lines: [[0,1], [0,2], [0,3], [0,4]],
-      position: { forward: 18, right: -10, up: -15 }
-    },
-    {
-      name: "Leo",
-      stars: [
-        { x: 0, y: 0, z: 0, size: 0.7 },
-        { x: 1, y: 0.8, z: 0.1, size: 0.5 },
-        { x: 2, y: 1.2, z: 0, size: 0.5 },
-        { x: 3, y: 0.8, z: -0.1, size: 0.55 },
-        { x: 2.5, y: 0, z: 0.1, size: 0.45 },
-        { x: 1.5, y: -0.5, z: 0, size: 0.4 },
-        { x: 0.5, y: -0.3, z: -0.1, size: 0.4 },
-      ],
-      lines: [[0,1], [1,2], [2,3], [3,4], [4,5], [5,6], [6,0]],
-      position: { forward: 28, right: -18, up: 10 }
-    },
-    {
-      name: "Virgo",
-      stars: [
-        { x: 0, y: 0, z: 0, size: 0.7 },
-        { x: -1, y: 1, z: 0.1, size: 0.5 },
-        { x: 0, y: 2, z: 0, size: 0.5 },
-        { x: 1.5, y: 2.5, z: -0.1, size: 0.45 },
-        { x: 1, y: 1, z: 0.1, size: 0.45 },
-        { x: 2, y: 0.5, z: 0, size: 0.4 },
-      ],
-      lines: [[0,1], [1,2], [2,3], [0,4], [4,5]],
-      position: { forward: 15, right: 30, up: 0 }
-    },
-    {
-      name: "Libra",
-      stars: [
-        { x: 0, y: 0, z: 0, size: 0.55 },
-        { x: -1.5, y: 1, z: 0.1, size: 0.5 },
-        { x: 1.5, y: 1, z: -0.1, size: 0.5 },
-        { x: -1, y: 2, z: 0, size: 0.45 },
-        { x: 1, y: 2, z: 0.1, size: 0.45 },
-      ],
-      lines: [[0,1], [0,2], [1,3], [2,4]],
-      position: { forward: 25, right: 5, up: -20 }
-    },
-    {
-      name: "Scorpio",
-      stars: [
-        { x: 0, y: 0, z: 0, size: 0.75 },
-        { x: -1, y: 0.5, z: 0.1, size: 0.5 },
-        { x: -2, y: 0.3, z: 0, size: 0.45 },
-        { x: 1, y: -0.5, z: -0.1, size: 0.5 },
-        { x: 2, y: -1, z: 0.1, size: 0.45 },
-        { x: 3, y: -0.8, z: 0, size: 0.4 },
-        { x: 3.5, y: -0.3, z: -0.1, size: 0.4 },
-      ],
-      lines: [[0,1], [1,2], [0,3], [3,4], [4,5], [5,6]],
-      position: { forward: 20, right: -30, up: -10 }
-    },
-    {
-      name: "Sagittarius",
-      stars: [
-        { x: 0, y: 1.5, z: 0, size: 0.5 },
-        { x: -1, y: 0.8, z: 0.1, size: 0.55 },
-        { x: 1, y: 0.8, z: -0.1, size: 0.55 },
-        { x: -1.2, y: 0, z: 0.2, size: 0.5 },
-        { x: 0, y: -0.2, z: 0, size: 0.45 },
-        { x: 1.2, y: 0, z: -0.2, size: 0.5 },
-        { x: -0.8, y: -1, z: 0.1, size: 0.45 },
-        { x: 0.8, y: -1, z: -0.1, size: 0.45 },
-      ],
-      lines: [[0,1], [0,2], [1,3], [2,5], [3,4], [4,5], [3,6], [5,7], [6,7]],
-      position: { forward: 30, right: 0, up: 18 }
-    },
-    {
-      name: "Capricorn",
-      stars: [
-        { x: 0, y: 0, z: 0, size: 0.5 },
-        { x: 1.5, y: 0.5, z: 0.1, size: 0.5 },
-        { x: 2.5, y: 0.2, z: 0, size: 0.45 },
-        { x: 2, y: -0.8, z: -0.1, size: 0.45 },
-        { x: 0.5, y: -1, z: 0.1, size: 0.4 },
-        { x: -0.5, y: -0.5, z: 0, size: 0.4 },
-      ],
-      lines: [[0,1], [1,2], [2,3], [3,4], [4,5], [5,0]],
-      position: { forward: 22, right: 25, up: 8 }
-    },
-    {
-      name: "Aquarius",
-      stars: [
-        { x: 0, y: 1, z: 0, size: 0.55 },
-        { x: -1, y: 0.5, z: 0.1, size: 0.5 },
-        { x: 1, y: 0.3, z: -0.1, size: 0.5 },
-        { x: 0.5, y: -0.5, z: 0, size: 0.45 },
-        { x: 1.5, y: -1, z: 0.1, size: 0.4 },
-        { x: 2.5, y: -0.8, z: -0.1, size: 0.4 },
-      ],
-      lines: [[0,1], [0,2], [2,3], [3,4], [4,5]],
-      position: { forward: 18, right: -5, up: 20 }
-    },
-    {
-      name: "Pisces",
-      stars: [
-        { x: 0, y: 0, z: 0, size: 0.5 },
-        { x: 1, y: 0.8, z: 0.1, size: 0.45 },
-        { x: 2, y: 1.5, z: 0, size: 0.5 },
-        { x: 2.5, y: 0.8, z: -0.1, size: 0.45 },
-        { x: -1, y: -0.5, z: 0.1, size: 0.45 },
-        { x: -1.5, y: -1.5, z: 0, size: 0.5 },
-        { x: -0.5, y: -1.8, z: -0.1, size: 0.45 },
-      ],
-      lines: [[0,1], [1,2], [2,3], [0,4], [4,5], [5,6]],
-      position: { forward: 26, right: -22, up: -5 }
-    },
+    { name: "Aries", stars: [{ x: 0, y: 0, z: 0, size: 0.6 }, { x: 1.2, y: 0.3, z: 0.1, size: 0.5 }, { x: 2.2, y: 0.8, z: 0, size: 0.55 }, { x: 3, y: 0.4, z: -0.1, size: 0.45 }], lines: [[0,1], [1,2], [2,3]], position: { forward: 25, right: 10, up: 12 } },
+    { name: "Taurus", stars: [{ x: 0, y: 0, z: 0, size: 0.7 }, { x: -1.5, y: 0.8, z: 0.1, size: 0.5 }, { x: -0.8, y: 1.2, z: 0, size: 0.45 }, { x: 0.5, y: 1.5, z: -0.1, size: 0.5 }, { x: 1.5, y: 1.2, z: 0, size: 0.45 }, { x: -2, y: -0.5, z: 0.2, size: 0.4 }, { x: -1, y: -0.8, z: 0.1, size: 0.4 }], lines: [[0,1], [0,2], [0,3], [0,4], [0,5], [5,6]], position: { forward: 20, right: -25, up: 5 } },
+    { name: "Gemini", stars: [{ x: 0, y: 2, z: 0, size: 0.65 }, { x: 1.5, y: 2.2, z: 0.1, size: 0.65 }, { x: 0.2, y: 1, z: 0, size: 0.45 }, { x: 1.3, y: 1, z: 0.1, size: 0.45 }, { x: 0.3, y: 0, z: -0.1, size: 0.4 }, { x: 1.2, y: -0.2, z: 0, size: 0.4 }], lines: [[0,2], [2,4], [1,3], [3,5], [0,1]], position: { forward: 22, right: 20, up: -8 } },
+    { name: "Cancer", stars: [{ x: 0, y: 0, z: 0, size: 0.5 }, { x: 1, y: 0.5, z: 0.1, size: 0.45 }, { x: -0.8, y: 0.8, z: 0, size: 0.45 }, { x: 0.5, y: -0.8, z: -0.1, size: 0.4 }, { x: -0.5, y: -0.5, z: 0.1, size: 0.4 }], lines: [[0,1], [0,2], [0,3], [0,4]], position: { forward: 18, right: -10, up: -15 } },
+    { name: "Leo", stars: [{ x: 0, y: 0, z: 0, size: 0.7 }, { x: 1, y: 0.8, z: 0.1, size: 0.5 }, { x: 2, y: 1.2, z: 0, size: 0.5 }, { x: 3, y: 0.8, z: -0.1, size: 0.55 }, { x: 2.5, y: 0, z: 0.1, size: 0.45 }, { x: 1.5, y: -0.5, z: 0, size: 0.4 }, { x: 0.5, y: -0.3, z: -0.1, size: 0.4 }], lines: [[0,1], [1,2], [2,3], [3,4], [4,5], [5,6], [6,0]], position: { forward: 28, right: -18, up: 10 } },
+    { name: "Virgo", stars: [{ x: 0, y: 0, z: 0, size: 0.7 }, { x: -1, y: 1, z: 0.1, size: 0.5 }, { x: 0, y: 2, z: 0, size: 0.5 }, { x: 1.5, y: 2.5, z: -0.1, size: 0.45 }, { x: 1, y: 1, z: 0.1, size: 0.45 }, { x: 2, y: 0.5, z: 0, size: 0.4 }], lines: [[0,1], [1,2], [2,3], [0,4], [4,5]], position: { forward: 15, right: 30, up: 0 } },
+    { name: "Libra", stars: [{ x: 0, y: 0, z: 0, size: 0.55 }, { x: -1.5, y: 1, z: 0.1, size: 0.5 }, { x: 1.5, y: 1, z: -0.1, size: 0.5 }, { x: -1, y: 2, z: 0, size: 0.45 }, { x: 1, y: 2, z: 0.1, size: 0.45 }], lines: [[0,1], [0,2], [1,3], [2,4]], position: { forward: 25, right: 5, up: -20 } },
+    { name: "Scorpio", stars: [{ x: 0, y: 0, z: 0, size: 0.75 }, { x: -1, y: 0.5, z: 0.1, size: 0.5 }, { x: -2, y: 0.3, z: 0, size: 0.45 }, { x: 1, y: -0.5, z: -0.1, size: 0.5 }, { x: 2, y: -1, z: 0.1, size: 0.45 }, { x: 3, y: -0.8, z: 0, size: 0.4 }, { x: 3.5, y: -0.3, z: -0.1, size: 0.4 }], lines: [[0,1], [1,2], [0,3], [3,4], [4,5], [5,6]], position: { forward: 20, right: -30, up: -10 } },
+    { name: "Sagittarius", stars: [{ x: 0, y: 1.5, z: 0, size: 0.5 }, { x: -1, y: 0.8, z: 0.1, size: 0.55 }, { x: 1, y: 0.8, z: -0.1, size: 0.55 }, { x: -1.2, y: 0, z: 0.2, size: 0.5 }, { x: 0, y: -0.2, z: 0, size: 0.45 }, { x: 1.2, y: 0, z: -0.2, size: 0.5 }, { x: -0.8, y: -1, z: 0.1, size: 0.45 }, { x: 0.8, y: -1, z: -0.1, size: 0.45 }], lines: [[0,1], [0,2], [1,3], [2,5], [3,4], [4,5], [3,6], [5,7], [6,7]], position: { forward: 30, right: 0, up: 18 } },
+    { name: "Capricorn", stars: [{ x: 0, y: 0, z: 0, size: 0.5 }, { x: 1.5, y: 0.5, z: 0.1, size: 0.5 }, { x: 2.5, y: 0.2, z: 0, size: 0.45 }, { x: 2, y: -0.8, z: -0.1, size: 0.45 }, { x: 0.5, y: -1, z: 0.1, size: 0.4 }, { x: -0.5, y: -0.5, z: 0, size: 0.4 }], lines: [[0,1], [1,2], [2,3], [3,4], [4,5], [5,0]], position: { forward: 22, right: 25, up: 8 } },
+    { name: "Aquarius", stars: [{ x: 0, y: 1, z: 0, size: 0.55 }, { x: -1, y: 0.5, z: 0.1, size: 0.5 }, { x: 1, y: 0.3, z: -0.1, size: 0.5 }, { x: 0.5, y: -0.5, z: 0, size: 0.45 }, { x: 1.5, y: -1, z: 0.1, size: 0.4 }, { x: 2.5, y: -0.8, z: -0.1, size: 0.4 }], lines: [[0,1], [0,2], [2,3], [3,4], [4,5]], position: { forward: 18, right: -5, up: 20 } },
+    { name: "Pisces", stars: [{ x: 0, y: 0, z: 0, size: 0.5 }, { x: 1, y: 0.8, z: 0.1, size: 0.45 }, { x: 2, y: 1.5, z: 0, size: 0.5 }, { x: 2.5, y: 0.8, z: -0.1, size: 0.45 }, { x: -1, y: -0.5, z: 0.1, size: 0.45 }, { x: -1.5, y: -1.5, z: 0, size: 0.5 }, { x: -0.5, y: -1.8, z: -0.1, size: 0.45 }], lines: [[0,1], [1,2], [2,3], [0,4], [4,5], [5,6]], position: { forward: 26, right: -22, up: -5 } },
   ];
 }
 
 function createConstellation(data) {
   const group = new THREE.Group();
   group.userData.name = data.name;
-  
   const starMeshes = [];
   data.stars.forEach((star) => {
-    const starMat = new THREE.SpriteMaterial({
-      map: starTexture,
-      color: new THREE.Color(1, 0.95, 0.85),
-      transparent: true,
-      opacity: 0,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    });
+    const starMat = new THREE.SpriteMaterial({ map: starTexture, color: new THREE.Color(1, 0.95, 0.85), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
     const sprite = new THREE.Sprite(starMat);
     sprite.position.set(star.x, star.y, star.z);
     sprite.scale.setScalar(star.size);
@@ -875,32 +562,19 @@ function createConstellation(data) {
     group.add(sprite);
     starMeshes.push(sprite);
   });
-  
-  const lineMat = new THREE.LineBasicMaterial({
-    color: 0x6688aa,
-    transparent: true,
-    opacity: 0,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  });
-  
+  const lineMat = new THREE.LineBasicMaterial({ color: 0x6688aa, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
   const lineMeshes = [];
   data.lines.forEach(([i, j]) => {
-    const points = [
-      new THREE.Vector3(data.stars[i].x, data.stars[i].y, data.stars[i].z),
-      new THREE.Vector3(data.stars[j].x, data.stars[j].y, data.stars[j].z),
-    ];
+    const points = [new THREE.Vector3(data.stars[i].x, data.stars[i].y, data.stars[i].z), new THREE.Vector3(data.stars[j].x, data.stars[j].y, data.stars[j].z)];
     const geometry = new THREE.BufferGeometry().setFromPoints(points);
     const line = new THREE.Line(geometry, lineMat.clone());
     group.add(line);
     lineMeshes.push(line);
   });
-  
   group.userData.starMeshes = starMeshes;
   group.userData.lineMeshes = lineMeshes;
   group.userData.relPos = data.position;
   group.scale.setScalar(1.2);
-  
   return group;
 }
 
@@ -910,23 +584,14 @@ function updateConstellations(time, opacity) {
       const twinkle = 0.7 + 0.3 * Math.sin(time * 1.5 + idx * 0.5 + star.position.x);
       star.userData.baseMat.opacity = opacity * twinkle;
     });
-    group.userData.lineMeshes.forEach((line) => {
-      line.material.opacity = opacity * 0.2;
-    });
+    group.userData.lineMeshes.forEach((line) => { line.material.opacity = opacity * 0.2; });
   });
 }
 
 // ============ 构建 ============
 function createNebulaPortal() {
   const group = new THREE.Group();
-  const nebulaMat = new THREE.MeshBasicMaterial({ 
-    map: nebulaTexture, 
-    transparent: true, 
-    opacity: 0.5, 
-    side: THREE.DoubleSide, 
-    blending: THREE.AdditiveBlending, 
-    depthWrite: false 
-  });
+  const nebulaMat = new THREE.MeshBasicMaterial({ map: nebulaTexture, transparent: true, opacity: 0.5, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false });
   nebulaMat.stencilWrite = true;
   nebulaMat.stencilRef = 1;
   nebulaMat.stencilFunc = THREE.EqualStencilFunc;
@@ -955,12 +620,7 @@ function createEasterEggs() {
     ctx.fillStyle = "rgba(180, 180, 200, 0.3)";
     ctx.fillText(egg.text, 128, 32);
     const texture = new THREE.CanvasTexture(canvas);
-    const spriteMat = new THREE.SpriteMaterial({ 
-      map: texture, 
-      transparent: true, 
-      opacity: 0, 
-      depthWrite: false 
-    });
+    const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 0, depthWrite: false });
     const sprite = new THREE.Sprite(spriteMat);
     sprite.scale.set(1.5, 0.4, 1);
     sprite.userData = { relPos: egg.relPos, spriteMat };
@@ -972,7 +632,6 @@ function createEasterEggs() {
 function build() {
   const texLoader = new THREE.TextureLoader();
   const gltfLoader = new GLTFLoader();
-  
   const panoTexture = texLoader.load(`${BASE}textures/pano.jpg`);
   panoTexture.colorSpace = THREE.SRGBColorSpace;
 
@@ -1025,22 +684,14 @@ function build() {
   ambientStars = ambientStarData.points;
   doorGroup.add(ambientStars);
 
-  // ===== Pano 天空背景 =====
   skySphere = new THREE.Mesh(
     new THREE.SphereGeometry(SKY_RADIUS, 64, 32),
-    new THREE.MeshBasicMaterial({
-      map: panoTexture,
-      side: THREE.BackSide,
-      transparent: true,
-      opacity: 0,
-      depthWrite: false,
-    })
+    new THREE.MeshBasicMaterial({ map: panoTexture, side: THREE.BackSide, transparent: true, opacity: 0, depthWrite: false })
   );
   skySphere.rotation.y = Math.PI;
   skySphere.renderOrder = 1;
   scene.add(skySphere);
 
-  // ===== 星星 =====
   starData = createStars(4000, SKY_RADIUS * 0.95, 0.25);
   skyStars = starData.points;
   skyStars.material.opacity = 0;
@@ -1059,112 +710,69 @@ function build() {
   brightStars.renderOrder = 4;
   scene.add(brightStars);
 
-  // ===== 月亮 =====
+  // 月亮
   const moonGeo = new THREE.SphereGeometry(4, 64, 64);
-  moonMesh = new THREE.Mesh(moonGeo, new THREE.MeshBasicMaterial({ 
-    color: 0xdddddd, 
-    transparent: true, 
-    opacity: 0 
-  }));
+  moonMesh = new THREE.Mesh(moonGeo, new THREE.MeshBasicMaterial({ color: 0xdddddd, transparent: true, opacity: 0 }));
   moonMesh.renderOrder = 10;
   scene.add(moonMesh);
 
-  // ===== 木星 =====
+  // 木星
   const jupiterGeo = new THREE.SphereGeometry(7, 64, 64);
-  jupiterMesh = new THREE.Mesh(jupiterGeo, new THREE.MeshBasicMaterial({ 
-    color: 0xddaa77, 
-    transparent: true, 
-    opacity: 0 
-  }));
+  jupiterMesh = new THREE.Mesh(jupiterGeo, new THREE.MeshBasicMaterial({ color: 0xddaa77, transparent: true, opacity: 0 }));
   jupiterMesh.renderOrder = 10;
   scene.add(jupiterMesh);
 
-  // ===== 火星 =====
+  // 火星
   const marsGeo = new THREE.SphereGeometry(3, 64, 64);
-  marsMesh = new THREE.Mesh(marsGeo, new THREE.MeshBasicMaterial({ 
-    color: 0xdd6644, 
-    transparent: true, 
-    opacity: 0 
-  }));
+  marsMesh = new THREE.Mesh(marsGeo, new THREE.MeshBasicMaterial({ color: 0xdd6644, transparent: true, opacity: 0 }));
   marsMesh.renderOrder = 10;
   scene.add(marsMesh);
 
-  // ===== 土星 =====
+  // 土星
   const saturnGeo = new THREE.SphereGeometry(5, 64, 64);
-  saturnMesh = new THREE.Mesh(saturnGeo, new THREE.MeshBasicMaterial({ 
-    color: 0xddcc88, 
-    transparent: true, 
-    opacity: 0 
-  }));
+  saturnMesh = new THREE.Mesh(saturnGeo, new THREE.MeshBasicMaterial({ color: 0xddcc88, transparent: true, opacity: 0 }));
   saturnMesh.renderOrder = 10;
   scene.add(saturnMesh);
 
   // 土星环
-  const ringInnerRadius = 6.5;
-  const ringOuterRadius = 12;
-  const ringGeo = new THREE.RingGeometry(ringInnerRadius, ringOuterRadius, 64);
-  
-  saturnRingMesh = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({
-    color: 0xffffff,
-    transparent: true,
-    opacity: 0,
-    side: THREE.DoubleSide,
-    depthWrite: false,
-  }));
+  const ringGeo = new THREE.RingGeometry(6.5, 12, 64);
+  saturnRingMesh = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false }));
   saturnRingMesh.rotation.x = Math.PI / 2.5;
   saturnRingMesh.renderOrder = 11;
   scene.add(saturnRingMesh);
 
-  // ===== 太阳（更远）=====
+  // 太阳
   const sunGeo = new THREE.SphereGeometry(8, 64, 64);
-  sunMesh = new THREE.Mesh(sunGeo, new THREE.MeshBasicMaterial({ 
-    color: 0xffdd88, 
-    transparent: true, 
-    opacity: 0 
-  }));
+  sunMesh = new THREE.Mesh(sunGeo, new THREE.MeshBasicMaterial({ color: 0xffdd88, transparent: true, opacity: 0 }));
   sunMesh.renderOrder = 10;
   scene.add(sunMesh);
 
   // 太阳光晕
   const sunGlowTexture = createSunGlowTexture();
-  const sunGlowMat = new THREE.SpriteMaterial({
-    map: sunGlowTexture,
-    color: 0xffeeaa,
-    transparent: true,
-    opacity: 0,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  });
+  const sunGlowMat = new THREE.SpriteMaterial({ map: sunGlowTexture, color: 0xffeeaa, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
   sunGlowSprite = new THREE.Sprite(sunGlowMat);
   sunGlowSprite.scale.set(40, 40, 1);
   sunGlowSprite.renderOrder = 9;
   scene.add(sunGlowSprite);
 
-  // ===== 银河漩涡模型（用户脚下）=====
+  // 银河漩涡（门外方向，比太阳更远）
   gltfLoader.load(`${BASE}models/milky.glb`, (gltf) => {
     milkyWayModel = gltf.scene;
-    
-    // 设置模型属性
     milkyWayModel.traverse((child) => {
       if (child.isMesh) {
         child.material.transparent = true;
         child.material.opacity = 0;
         child.material.depthWrite = false;
-        if (child.material.emissive) {
-          child.material.emissive = child.material.color.clone();
-          child.material.emissiveIntensity = 0.5;
-        }
+        child.material.blending = THREE.AdditiveBlending;
       }
     });
-    
-    // 调整大小和位置
+    // 调整大小
     const box = new THREE.Box3().setFromObject(milkyWayModel);
     const size = new THREE.Vector3();
     box.getSize(size);
     const maxDim = Math.max(size.x, size.y, size.z);
-    const targetSize = 30; // 目标大小
+    const targetSize = 25;
     milkyWayModel.scale.setScalar(targetSize / maxDim);
-    
     milkyWayModel.renderOrder = 5;
     scene.add(milkyWayModel);
   }, undefined, (err) => {
@@ -1172,43 +780,14 @@ function build() {
   });
 
   // 加载贴图
-  texLoader.load(`${BASE}textures/moon.jpg`, (tex) => { 
-    tex.colorSpace = THREE.SRGBColorSpace; 
-    moonMesh.material.map = tex; 
-    moonMesh.material.color.set(0xffffff); 
-    moonMesh.material.needsUpdate = true; 
-  });
-  texLoader.load(`${BASE}textures/earth.jpg`, (tex) => { 
-    tex.colorSpace = THREE.SRGBColorSpace; 
-    jupiterMesh.material.map = tex; 
-    jupiterMesh.material.color.set(0xffffff); 
-    jupiterMesh.material.needsUpdate = true; 
-  });
-  texLoader.load(`${BASE}textures/mars.jpg`, (tex) => { 
-    tex.colorSpace = THREE.SRGBColorSpace; 
-    marsMesh.material.map = tex; 
-    marsMesh.material.color.set(0xffffff); 
-    marsMesh.material.needsUpdate = true; 
-  });
-  texLoader.load(`${BASE}textures/saturn.jpg`, (tex) => { 
-    tex.colorSpace = THREE.SRGBColorSpace; 
-    saturnMesh.material.map = tex; 
-    saturnMesh.material.color.set(0xffffff); 
-    saturnMesh.material.needsUpdate = true; 
-  });
-  texLoader.load(`${BASE}textures/saturn_ring.png`, (tex) => { 
-    tex.colorSpace = THREE.SRGBColorSpace; 
-    saturnRingMesh.material.map = tex; 
-    saturnRingMesh.material.needsUpdate = true; 
-  });
-  texLoader.load(`${BASE}textures/sun.jpg`, (tex) => { 
-    tex.colorSpace = THREE.SRGBColorSpace; 
-    sunMesh.material.map = tex; 
-    sunMesh.material.color.set(0xffffff); 
-    sunMesh.material.needsUpdate = true; 
-  });
+  texLoader.load(`${BASE}textures/moon.jpg`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; moonMesh.material.map = tex; moonMesh.material.color.set(0xffffff); moonMesh.material.needsUpdate = true; });
+  texLoader.load(`${BASE}textures/earth.jpg`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; jupiterMesh.material.map = tex; jupiterMesh.material.color.set(0xffffff); jupiterMesh.material.needsUpdate = true; });
+  texLoader.load(`${BASE}textures/mars.jpg`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; marsMesh.material.map = tex; marsMesh.material.color.set(0xffffff); marsMesh.material.needsUpdate = true; });
+  texLoader.load(`${BASE}textures/saturn.jpg`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; saturnMesh.material.map = tex; saturnMesh.material.color.set(0xffffff); saturnMesh.material.needsUpdate = true; });
+  texLoader.load(`${BASE}textures/saturn_ring.png`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; saturnRingMesh.material.map = tex; saturnRingMesh.material.needsUpdate = true; });
+  texLoader.load(`${BASE}textures/sun.jpg`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; sunMesh.material.map = tex; sunMesh.material.color.set(0xffffff); sunMesh.material.needsUpdate = true; });
 
-  // ===== 12星座 =====
+  // 12星座
   const constellationsData = getConstellationsData();
   constellationsData.forEach((data) => {
     const constellation = createConstellation(data);
@@ -1217,7 +796,7 @@ function build() {
     constellationGroups.push(constellation);
   });
 
-  // ===== 彩蛋 =====
+  // 彩蛋
   easterEggs = createEasterEggs();
   easterEggs.forEach(egg => scene.add(egg));
 }
@@ -1291,14 +870,12 @@ function updateTransition(xrCam, delta) {
   if (milkyWayModel) {
     milkyWayModel.traverse((child) => {
       if (child.isMesh) {
-        child.material.opacity = smooth * 0.8;
+        child.material.opacity = smooth * 0.9;
       }
     });
   }
   
   easterEggs.forEach(egg => { egg.userData.spriteMat.opacity = smooth * 0.3; });
-  
-  // 星座透明度
   updateConstellations(performance.now() / 1000, smooth);
   
   const previewOp = 1 - smooth;
@@ -1310,9 +887,7 @@ function updateTransition(xrCam, delta) {
 function updateCelestialBodies(time, delta) {
   // 月亮
   if (moonMesh) {
-    const moonPos = doorPlanePoint.clone()
-      .addScaledVector(doorForward, 12)
-      .addScaledVector(doorRight, -8);
+    const moonPos = doorPlanePoint.clone().addScaledVector(doorForward, 12).addScaledVector(doorRight, -8);
     moonPos.y = doorPlanePoint.y + 6;
     moonMesh.position.copy(moonPos);
     moonMesh.rotation.y += delta * 0.05;
@@ -1320,19 +895,15 @@ function updateCelestialBodies(time, delta) {
   
   // 木星
   if (jupiterMesh) {
-    const jupiterPos = doorPlanePoint.clone()
-      .addScaledVector(doorForward, 28)
-      .addScaledVector(doorRight, 15);
+    const jupiterPos = doorPlanePoint.clone().addScaledVector(doorForward, 28).addScaledVector(doorRight, 15);
     jupiterPos.y = doorPlanePoint.y + 5;
     jupiterMesh.position.copy(jupiterPos);
     jupiterMesh.rotation.y += delta * 0.03;
   }
   
-  // 火星（下方）
+  // 火星
   if (marsMesh) {
-    const marsPos = doorPlanePoint.clone()
-      .addScaledVector(doorForward, 25)
-      .addScaledVector(doorRight, 5);
+    const marsPos = doorPlanePoint.clone().addScaledVector(doorForward, 25).addScaledVector(doorRight, 5);
     marsPos.y = doorPlanePoint.y - 12;
     marsMesh.position.copy(marsPos);
     marsMesh.rotation.y += delta * 0.04;
@@ -1340,27 +911,19 @@ function updateCelestialBodies(time, delta) {
   
   // 土星（门外方向）
   if (saturnMesh) {
-    const saturnPos = doorPlanePoint.clone()
-      .addScaledVector(doorForward, -25)
-      .addScaledVector(doorRight, -15);
+    const saturnPos = doorPlanePoint.clone().addScaledVector(doorForward, -25).addScaledVector(doorRight, -15);
     saturnPos.y = doorPlanePoint.y + 10;
     saturnMesh.position.copy(saturnPos);
     saturnMesh.rotation.y += delta * 0.02;
-    
-    if (saturnRingMesh) {
-      saturnRingMesh.position.copy(saturnPos);
-    }
+    if (saturnRingMesh) saturnRingMesh.position.copy(saturnPos);
   }
   
-  // 太阳（门外方向，更远）
+  // 太阳（门外方向，远处）
   if (sunMesh) {
-    const sunPos = doorPlanePoint.clone()
-      .addScaledVector(doorForward, -55) // 更远
-      .addScaledVector(doorRight, 25);
+    const sunPos = doorPlanePoint.clone().addScaledVector(doorForward, -55).addScaledVector(doorRight, 25);
     sunPos.y = doorPlanePoint.y + 18;
     sunMesh.position.copy(sunPos);
     sunMesh.rotation.y += delta * 0.01;
-    
     if (sunGlowSprite) {
       sunGlowSprite.position.copy(sunPos);
       const glowScale = 40 + Math.sin(time * 0.5) * 3;
@@ -1368,20 +931,20 @@ function updateCelestialBodies(time, delta) {
     }
   }
   
-  // 银河模型位置（用户脚下，缓慢旋转）
+  // 银河漩涡（门外方向，比太阳更远，正中偏下）
   if (milkyWayModel) {
-    const milkyPos = _camPos.clone();
-    milkyPos.y = doorPlanePoint.y - 15; // 脚下
+    const milkyPos = doorPlanePoint.clone()
+      .addScaledVector(doorForward, -75)  // 比太阳更远
+      .addScaledVector(doorRight, 0);      // 正中
+    milkyPos.y = doorPlanePoint.y - 5;    // 略微偏下
     milkyWayModel.position.copy(milkyPos);
-    milkyWayModel.rotation.y += delta * 0.02; // 缓慢旋转
+    milkyWayModel.rotation.y += delta * 0.03; // 缓慢旋转
   }
   
-  // 更新星座位置
+  // 星座位置
   constellationGroups.forEach((group) => {
     const rel = group.userData.relPos;
-    const pos = doorPlanePoint.clone()
-      .addScaledVector(doorForward, rel.forward)
-      .addScaledVector(doorRight, rel.right);
+    const pos = doorPlanePoint.clone().addScaledVector(doorForward, rel.forward).addScaledVector(doorRight, rel.right);
     pos.y = doorPlanePoint.y + rel.up;
     group.position.copy(pos);
     group.lookAt(_camPos);
@@ -1390,9 +953,7 @@ function updateCelestialBodies(time, delta) {
   // 彩蛋位置
   easterEggs.forEach((egg) => {
     const rel = egg.userData.relPos;
-    const eggPos = doorPlanePoint.clone()
-      .addScaledVector(doorForward, rel.forward)
-      .addScaledVector(doorRight, rel.right);
+    const eggPos = doorPlanePoint.clone().addScaledVector(doorForward, rel.forward).addScaledVector(doorRight, rel.right);
     eggPos.y = doorPlanePoint.y + rel.up;
     egg.position.copy(eggPos);
   });
@@ -1440,8 +1001,6 @@ function render(_, frame) {
     updateStars(ambientStarData, time);
     updateFloatingStars(floatingStarData, time);
     updateBrightStars(brightStarData, time);
-    
-    // 流星雨触发
     if (!meteorShowerTriggered && isInside && (now - placedTime) >= 190000) {
       meteorShowerTriggered = true;
       spawnMeteorShower();
@@ -1453,26 +1012,10 @@ function render(_, frame) {
 }
 
 function reset() {
-  placed = false; 
-  isInside = false; 
-  transitionValue = 0;
-  placedTime = 0;
-  meteorShowerTriggered = false;
-  
-  if (bgAudio) { 
-    bgAudio.pause(); 
-    bgAudio.currentTime = 0; 
-    audioStarted = false; 
-  }
-  
-  meteors.forEach(m => { 
-    scene.remove(m); 
-    if (m.userData.trailSprites) {
-      m.userData.trailSprites.forEach(ts => scene.remove(ts.sprite));
-    }
-  });
+  placed = false; isInside = false; transitionValue = 0; placedTime = 0; meteorShowerTriggered = false;
+  if (bgAudio) { bgAudio.pause(); bgAudio.currentTime = 0; audioStarted = false; }
+  meteors.forEach(m => { scene.remove(m); if (m.userData.trailSprites) m.userData.trailSprites.forEach(ts => scene.remove(ts.sprite)); });
   meteors = [];
-  
   if (doorGroup) { scene.remove(doorGroup); doorGroup = null; }
   if (skySphere) { scene.remove(skySphere); skySphere = null; }
   if (skyStars) { scene.remove(skyStars); skyStars = null; }
@@ -1486,18 +1029,11 @@ function reset() {
   if (sunMesh) { scene.remove(sunMesh); sunMesh = null; }
   if (sunGlowSprite) { scene.remove(sunGlowSprite); sunGlowSprite = null; }
   if (milkyWayModel) { scene.remove(milkyWayModel); milkyWayModel = null; }
-  
   constellationGroups.forEach(g => scene.remove(g));
   constellationGroups = [];
-  
   easterEggs.forEach(egg => scene.remove(egg));
   easterEggs = [];
-  nebulaPortal = null; 
-  ambientStars = null; 
-  portalMask = null;
-  starData = null; 
-  floatingStarData = null; 
-  brightStarData = null; 
-  ambientStarData = null;
+  nebulaPortal = null; ambientStars = null; portalMask = null;
+  starData = null; floatingStarData = null; brightStarData = null; ambientStarData = null;
   reticle.visible = false;
 }
