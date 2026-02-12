@@ -57,6 +57,7 @@ let ambientStarData = null;
 let meteors = [];
 let touchPoints = [];
 let isTouching = false;
+let autoMeteorTimer = 0;  // 
 
 // 纹理
 let starTexture = null;
@@ -142,15 +143,23 @@ function initTouchEvents() {
     if (!isTouching) return;
     const touch = e.touches[0];
     touchPoints.push({ x: touch.clientX, y: touch.clientY });
-    if (touchPoints.length > 25) touchPoints.shift();
+    if (touchPoints.length > 20) touchPoints.shift();
   }, { passive: true });
   
   canvas.addEventListener("touchend", () => {
     if (!isTouching) return;
     isTouching = false;
     
-    if (isInside && touchPoints.length >= 3) {
-      spawnMeteor();
+    // 降低触发条件：只要放置了门且有滑动就触发（不再要求isInside）
+    if (placed && touchPoints.length >= 2) {
+      const start = touchPoints[0];
+      const end = touchPoints[touchPoints.length - 1];
+      const dx = end.x - start.x;
+      const dy = end.y - start.y;
+      const len = Math.sqrt(dx * dx + dy * dy);
+      if (len > 15) {
+        spawnMeteor();
+      }
     }
     touchPoints = [];
   }, { passive: true });
@@ -706,6 +715,45 @@ function updateMeteors(delta) {
   }
 }
 
+// 自动流星更新
+function updateAutoMeteor(delta) {
+  if (!isInside) return;
+  
+  autoMeteorTimer += delta;
+  
+  // 每8-15秒自动生成一颗流星
+  if (autoMeteorTimer > 8 + Math.random() * 7) {
+    autoMeteorTimer = 0;
+    spawnRandomMeteor();
+  }
+}
+
+// 随机自动流星
+function spawnRandomMeteor() {
+  const xrCam = renderer.xr.getCamera(camera);
+  xrCam.getWorldPosition(_camPos);
+  
+  const camForward = new THREE.Vector3(0, 0, -1).applyQuaternion(xrCam.quaternion);
+  const camUp = new THREE.Vector3(0, 1, 0).applyQuaternion(xrCam.quaternion);
+  const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(xrCam.quaternion);
+  
+  const angle = Math.random() * Math.PI * 2;
+  const flyDir = new THREE.Vector3()
+    .addScaledVector(camRight, Math.cos(angle) * 0.7)
+    .addScaledVector(camUp, -0.5 - Math.random() * 0.3)
+    .addScaledVector(camForward, Math.sin(angle) * 0.3)
+    .normalize();
+  
+  const spawnPos = _camPos.clone()
+    .add(camForward.clone().multiplyScalar(15 + Math.random() * 10))
+    .add(camUp.clone().multiplyScalar(5 + Math.random() * 8))
+    .add(camRight.clone().multiplyScalar((Math.random() - 0.5) * 15));
+  
+  const meteor = createArcMeteor(spawnPos, flyDir);
+  scene.add(meteor);
+  meteors.push(meteor);
+}
+
 // ============ 创建薄雾门（两个版本统一使用）============
 function createNebulaPortal() {
   const group = new THREE.Group();
@@ -1133,6 +1181,7 @@ function render(_, frame) {
   if (placed) {
     updateTransition(xrCam, delta);
     updateMeteors(delta);
+    updateAutoMeteor(delta);  
     updateCelestialBodies(time, delta);
     
     // 更新所有星星（闪烁 + 位移）
