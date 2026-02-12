@@ -6,7 +6,7 @@ const BASE = import.meta.env.BASE_URL;
 
 // ============ 版本切换 ============
 // 改为 true 使用 galaxy.glb，改为 false 使用 pano.jpg
-const USE_GLB_GALAXY = false;
+const USE_GLB_GALAXY = true;
 
 // ============ 配置 ============
 const DOOR_HEIGHT = 2.1;
