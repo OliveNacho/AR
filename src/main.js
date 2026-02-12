@@ -712,7 +712,6 @@ function build() {
   doorGroup.add(ambientStars);
 
   // ===== 天空背景 =====
-  // ===== 天空背景 =====
 if (USE_GLB_GALAXY) {
   gltfLoader.load(`${BASE}models/galaxy.glb`, (gltf) => {
     galaxyModel = gltf.scene;
@@ -722,7 +721,6 @@ if (USE_GLB_GALAXY) {
         child.material.transparent = true;
         child.material.opacity = 0;
         child.material.depthWrite = false;
-        child.material.side = THREE.BackSide;
         child.renderOrder = 1;
       }
     });
