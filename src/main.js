@@ -4,6 +4,10 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 const BASE = import.meta.env.BASE_URL;
 
+// ============ 版本切换 ============
+// 改为 true 使用 galaxy.glb，改为 false 使用 pano.jpg
+const USE_GLB_GALAXY = false;
+
 // ============ 配置 ============
 const DOOR_HEIGHT = 2.1;
 const DOOR_DISTANCE = 1.5;
@@ -19,6 +23,7 @@ let previewSphere = null;
 let previewStars = null;
 let ambientStars = null;
 let skySphere = null;
+let galaxyModel = null;
 let skyStars = null;
 let floatingStars = null;
 let brightStars = null;
@@ -56,8 +61,6 @@ let isTouching = false;
 // 纹理
 let starTexture = null;
 let starSpriteTexture = null;
-let moonTexture = null;
-let earthTexture = null;
 
 // ============ 初始化 ============
 init();
@@ -101,6 +104,12 @@ function init() {
     ARButton.createButton(renderer, { requiredFeatures: ["hit-test"] })
   );
 
+  // 显示当前模式
+  const modeLabel = document.createElement("div");
+  modeLabel.textContent = USE_GLB_GALAXY ? "GLB Mode" : "Pano Mode";
+  modeLabel.style.cssText = "position:fixed;top:10px;right:10px;z-index:9999;padding:8px 12px;background:rgba(0,100,200,0.7);color:#fff;border-radius:6px;font-size:12px;";
+  document.body.appendChild(modeLabel);
+
   const btn = document.createElement("button");
   btn.textContent = "Reset";
   btn.style.cssText = "position:fixed;top:10px;left:10px;z-index:9999;padding:8px 12px;background:rgba(0,0,0,0.5);color:#fff;border:none;border-radius:6px;";
@@ -123,22 +132,33 @@ function initTouchEvents() {
     if (!placed) return;
     isTouching = true;
     touchPoints = [];
-    const touch = e.touches[0];
-    touchPoints.push({ x: touch.clientX, y: touch.clientY });
+    for (let i = 0; i < e.touches.length; i++) {
+      touchPoints.push({ x: e.touches[i].clientX, y: e.touches[i].clientY });
+    }
   }, { passive: true });
   
   canvas.addEventListener("touchmove", (e) => {
     if (!isTouching) return;
-    const touch = e.touches[0];
-    touchPoints.push({ x: touch.clientX, y: touch.clientY });
-    if (touchPoints.length > 20) touchPoints.shift();
+    for (let i = 0; i < e.touches.length; i++) {
+      touchPoints.push({ x: e.touches[i].clientX, y: e.touches[i].clientY });
+    }
+    if (touchPoints.length > 30) touchPoints = touchPoints.slice(-30);
   }, { passive: true });
   
   canvas.addEventListener("touchend", () => {
     if (!isTouching) return;
     isTouching = false;
-    if (touchPoints.length >= 2 && isInside) {
-      spawnMeteor();
+    
+    // 只要在门内且有滑动就触发
+    if (isInside && touchPoints.length >= 2) {
+      const start = touchPoints[0];
+      const end = touchPoints[touchPoints.length - 1];
+      const dx = end.x - start.x;
+      const dy = end.y - start.y;
+      const len = Math.sqrt(dx * dx + dy * dy);
+      if (len > 20) {
+        spawnMeteor(dx, dy, len);
+      }
     }
     touchPoints = [];
   }, { passive: true });
@@ -449,17 +469,8 @@ function updateBrightStars(data, time) {
   points.geometry.attributes.color.needsUpdate = true;
 }
 
-// ============ 优雅弧线流星 ============
-function spawnMeteor() {
-  if (touchPoints.length < 2) return;
-  
-  const start = touchPoints[0];
-  const end = touchPoints[touchPoints.length - 1];
-  const dx = end.x - start.x;
-  const dy = end.y - start.y;
-  const len = Math.sqrt(dx * dx + dy * dy);
-  if (len < 25) return;
-  
+// ============ 简化流星（确保触发）============
+function spawnMeteor(dx, dy, len) {
   const xrCam = renderer.xr.getCamera(camera);
   xrCam.getWorldPosition(_camPos);
   
@@ -467,91 +478,75 @@ function spawnMeteor() {
   const camUp = new THREE.Vector3(0, 1, 0).applyQuaternion(xrCam.quaternion);
   const camForward = new THREE.Vector3(0, 0, -1).applyQuaternion(xrCam.quaternion);
   
-  // 基于滑动方向的初始方向
-  const baseDir = new THREE.Vector3()
+  const dir = new THREE.Vector3()
     .addScaledVector(camRight, dx / len)
     .addScaledVector(camUp, -dy / len)
-    .addScaledVector(camForward, 0.2)
+    .addScaledVector(camForward, 0.3)
     .normalize();
   
+  // 在视野前方随机位置生成
   const spawnPos = _camPos.clone()
-    .add(camForward.clone().multiplyScalar(12 + Math.random() * 8))
-    .add(camUp.clone().multiplyScalar(4 + Math.random() * 6))
+    .add(camForward.clone().multiplyScalar(10 + Math.random() * 10))
+    .add(camUp.clone().multiplyScalar(3 + Math.random() * 5))
     .add(camRight.clone().multiplyScalar((Math.random() - 0.5) * 10));
   
-  const meteor = createArcMeteor(spawnPos, baseDir);
+  const meteor = createSimpleMeteor(spawnPos, dir);
   scene.add(meteor);
   meteors.push(meteor);
 }
 
-function createArcMeteor(startPos, baseDir) {
+function createSimpleMeteor(pos, dir) {
   const group = new THREE.Group();
+  group.position.copy(pos);
   
-  // 生成弧线控制点
-  const arcLength = 8 + Math.random() * 5;
-  const arcBend = (Math.random() - 0.5) * 2; // 弯曲程度
-  const gravity = -0.3 - Math.random() * 0.2; // 向下弧度
+  const tailLength = 2 + Math.random() * 1;
   
-  // 计算垂直于飞行方向的偏移
-  const perpendicular = new THREE.Vector3()
-    .crossVectors(baseDir, new THREE.Vector3(0, 1, 0))
-    .normalize();
-  
-  const p0 = startPos.clone();
-  const p1 = startPos.clone()
-    .addScaledVector(baseDir, arcLength * 0.33)
-    .addScaledVector(perpendicular, arcBend)
-    .add(new THREE.Vector3(0, gravity * arcLength * 0.3, 0));
-  const p2 = startPos.clone()
-    .addScaledVector(baseDir, arcLength * 0.66)
-    .addScaledVector(perpendicular, arcBend * 0.5)
-    .add(new THREE.Vector3(0, gravity * arcLength * 0.8, 0));
-  const p3 = startPos.clone()
-    .addScaledVector(baseDir, arcLength)
-    .add(new THREE.Vector3(0, gravity * arcLength * 1.5, 0));
-  
-  const curve = new THREE.CubicBezierCurve3(p0, p1, p2, p3);
-  
-  // 流星头部 - 柔和光点
-  const headGeo = new THREE.SphereGeometry(0.03, 12, 12);
-  const headMat = new THREE.MeshBasicMaterial({
+  // 核心亮点
+  const coreGeo = new THREE.SphereGeometry(0.03, 8, 8);
+  const coreMat = new THREE.MeshBasicMaterial({
     color: 0xffffff,
     transparent: true,
     opacity: 1,
   });
-  const head = new THREE.Mesh(headGeo, headMat);
-  group.add(head);
+  const core = new THREE.Mesh(coreGeo, coreMat);
+  group.add(core);
   
-  // 头部光晕
+  // 光晕
+  const glowGeo = new THREE.BufferGeometry();
+  glowGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array([0, 0, 0]), 3));
   const glowMat = new THREE.PointsMaterial({
     map: starTexture,
-    size: 0.25,
+    size: 0.3,
     color: 0xffeedd,
     transparent: true,
     opacity: 0.9,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
-  const glowGeo = new THREE.BufferGeometry();
-  glowGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array([0, 0, 0]), 3));
   const glow = new THREE.Points(glowGeo, glowMat);
   group.add(glow);
   
-  // 拖尾 - 沿曲线的渐变粒子
-  const trailCount = 40;
+  // 拖尾粒子
+  const trailCount = 30;
   const trailPositions = new Float32Array(trailCount * 3);
   const trailColors = new Float32Array(trailCount * 3);
-  const trailSizes = new Float32Array(trailCount);
   
-  // 初始化拖尾
   for (let i = 0; i < trailCount; i++) {
-    trailPositions[i * 3] = 0;
-    trailPositions[i * 3 + 1] = 0;
-    trailPositions[i * 3 + 2] = 0;
-    trailColors[i * 3] = 1;
-    trailColors[i * 3 + 1] = 1;
-    trailColors[i * 3 + 2] = 1;
-    trailSizes[i] = 0.04 * (1 - i / trailCount);
+    const t = i / (trailCount - 1);
+    trailPositions[i * 3] = -dir.x * t * tailLength;
+    trailPositions[i * 3 + 1] = -dir.y * t * tailLength;
+    trailPositions[i * 3 + 2] = -dir.z * t * tailLength;
+    
+    const fade = Math.pow(1 - t, 1.5);
+    let r = 1, g = 1, b = 1;
+    if (t > 0.2) {
+      const blend = (t - 0.2) / 0.8;
+      g = 1 - blend * 0.2;
+      b = 1 - blend * 0.5;
+    }
+    trailColors[i * 3] = r * fade;
+    trailColors[i * 3 + 1] = g * fade;
+    trailColors[i * 3 + 2] = b * fade;
   }
   
   const trailGeo = new THREE.BufferGeometry();
@@ -560,7 +555,7 @@ function createArcMeteor(startPos, baseDir) {
   
   const trailMat = new THREE.PointsMaterial({
     map: starTexture,
-    size: 0.06,
+    size: 0.08,
     vertexColors: true,
     transparent: true,
     opacity: 1,
@@ -570,23 +565,16 @@ function createArcMeteor(startPos, baseDir) {
   });
   
   const trail = new THREE.Points(trailGeo, trailMat);
-  trail.frustumCulled = false;
   group.add(trail);
   
   group.userData = {
-    curve,
-    progress: 0,
-    speed: 0.08 + Math.random() * 0.04,
+    direction: dir.clone(),
+    speed: 3 + Math.random() * 2,
     life: 0,
-    maxLife: 6 + Math.random() * 3,
-    headMat,
+    maxLife: 4 + Math.random() * 2,
+    coreMat,
     glowMat,
     trailMat,
-    trailPositions,
-    trailColors,
-    trailGeo,
-    trailHistory: [],
-    head,
   };
   
   return group;
@@ -598,70 +586,16 @@ function updateMeteors(delta) {
     const d = m.userData;
     
     d.life += delta;
-    d.progress += d.speed * delta;
+    m.position.addScaledVector(d.direction, d.speed * delta);
     
-    // 沿曲线移动
-    const t = Math.min(d.progress, 1);
-    const pos = d.curve.getPoint(t);
-    d.head.position.copy(pos);
-    
-    // 更新拖尾历史
-    d.trailHistory.unshift(pos.clone());
-    if (d.trailHistory.length > 40) d.trailHistory.pop();
-    
-    // 更新拖尾粒子位置和颜色
-    const trailCount = Math.min(d.trailHistory.length, 40);
-    for (let j = 0; j < 40; j++) {
-      if (j < trailCount) {
-        const hp = d.trailHistory[j];
-        d.trailPositions[j * 3] = hp.x;
-        d.trailPositions[j * 3 + 1] = hp.y;
-        d.trailPositions[j * 3 + 2] = hp.z;
-        
-        const fade = Math.pow(1 - j / 40, 1.8);
-        // 颜色渐变：白 → 暖黄 → 橙 → 淡蓝
-        let r, g, b;
-        const ct = j / 40;
-        if (ct < 0.15) {
-          r = 1; g = 1; b = 1;
-        } else if (ct < 0.4) {
-          const blend = (ct - 0.15) / 0.25;
-          r = 1; g = 1 - blend * 0.1; b = 1 - blend * 0.35;
-        } else if (ct < 0.7) {
-          const blend = (ct - 0.4) / 0.3;
-          r = 1 - blend * 0.1; g = 0.9 - blend * 0.15; b = 0.65 - blend * 0.05;
-        } else {
-          const blend = (ct - 0.7) / 0.3;
-          r = 0.9 - blend * 0.35; g = 0.75 - blend * 0.05; b = 0.6 + blend * 0.25;
-        }
-        
-        d.trailColors[j * 3] = r * fade;
-        d.trailColors[j * 3 + 1] = g * fade;
-        d.trailColors[j * 3 + 2] = b * fade;
-      } else {
-        d.trailColors[j * 3] = 0;
-        d.trailColors[j * 3 + 1] = 0;
-        d.trailColors[j * 3 + 2] = 0;
-      }
-    }
-    
-    d.trailGeo.attributes.position.needsUpdate = true;
-    d.trailGeo.attributes.color.needsUpdate = true;
-    
-    // 整体淡出
     const progress = d.life / d.maxLife;
-    let fade;
-    if (progress < 0.1) {
-      fade = progress / 0.1;
-    } else {
-      fade = Math.pow(1 - (progress - 0.1) / 0.9, 0.6);
-    }
+    let fade = progress < 0.1 ? progress / 0.1 : Math.pow(1 - (progress - 0.1) / 0.9, 0.6);
     
-    d.headMat.opacity = fade;
+    d.coreMat.opacity = fade;
     d.glowMat.opacity = fade * 0.9;
     d.trailMat.opacity = fade;
     
-    if (d.life >= d.maxLife || d.progress >= 1) {
+    if (d.life >= d.maxLife) {
       scene.remove(m);
       meteors.splice(i, 1);
     }
@@ -738,7 +672,7 @@ function build() {
   previewMat.stencilFunc = THREE.EqualStencilFunc;
 
   previewSphere = new THREE.Mesh(new THREE.SphereGeometry(PREVIEW_RADIUS, 48, 32), previewMat);
-  previewSphere.rotation.y = Math.PI; // 旋转180度
+  previewSphere.rotation.y = Math.PI;
   previewSphere.renderOrder = 1;
   previewSphere.frustumCulled = false;
   doorGroup.add(previewSphere);
@@ -755,20 +689,30 @@ function build() {
   doorGroup.add(ambientStars);
 
   // ===== 门内世界 =====
-  skySphere = new THREE.Mesh(
-    new THREE.SphereGeometry(SKY_RADIUS, 64, 32),
-    new THREE.MeshBasicMaterial({
-      map: panoTexture,
-      side: THREE.BackSide,
-      transparent: true,
-      opacity: 0,
-      depthWrite: false,
-    })
-  );
-  skySphere.rotation.y = Math.PI; // 旋转180度
-  skySphere.renderOrder = 1;
-  scene.add(skySphere);
+  if (USE_GLB_GALAXY) {
+    // GLB模式：加载galaxy.glb
+    gltfLoader.load(`${BASE}models/galaxy.glb`, (gltf) => {
+      galaxyModel = gltf.scene;
+      galaxyModel.scale.setScalar(SKY_RADIUS * 0.5);
+      galaxyModel.traverse((child) => {
+        if (child.isMesh) {
+          child.material.transparent = true;
+          child.material.opacity = 0;
+          child.material.depthWrite = false;
+        }
+      });
+      galaxyModel.renderOrder = 1;
+      scene.add(galaxyModel);
+    }, undefined, (err) => {
+      console.warn("Galaxy GLB load failed, falling back to pano");
+      createPanoSphere(panoTexture);
+    });
+  } else {
+    // Pano模式
+    createPanoSphere(panoTexture);
+  }
 
+  // 星星（两种模式都有）
   starData = createStars(4000, SKY_RADIUS * 0.95, 0.22, false);
   skyStars = starData.points;
   skyStars.material.opacity = 0;
@@ -787,11 +731,11 @@ function build() {
   brightStars.renderOrder = 4;
   scene.add(brightStars);
 
-  // ===== 用简单球体代替GLB天体 =====
-  // 月球 - 使用灰白色球体
-  const moonGeo = new THREE.SphereGeometry(1.5, 32, 32);
+  // ===== 天体 - 更大更近，分布在不同方向 =====
+  // 月球 - 用户前方偏左，可以走近
+  const moonGeo = new THREE.SphereGeometry(3, 64, 64);
   const moonMat = new THREE.MeshBasicMaterial({
-    color: 0xcccccc,
+    color: 0xdddddd,
     transparent: true,
     opacity: 0,
   });
@@ -799,8 +743,8 @@ function build() {
   moonMesh.renderOrder = 10;
   scene.add(moonMesh);
 
-  // 地球 - 使用蓝色球体
-  const earthGeo = new THREE.SphereGeometry(2.5, 32, 32);
+  // 地球 - 用户前方偏右，更大
+  const earthGeo = new THREE.SphereGeometry(5, 64, 64);
   const earthMat = new THREE.MeshBasicMaterial({
     color: 0x4488ff,
     transparent: true,
@@ -810,7 +754,7 @@ function build() {
   earthMesh.renderOrder = 10;
   scene.add(earthMesh);
 
-  // 尝试加载贴图（如果有的话）
+  // 尝试加载贴图
   texLoader.load(`${BASE}textures/moon.jpg`, (tex) => {
     tex.colorSpace = THREE.SRGBColorSpace;
     moonMesh.material.map = tex;
@@ -824,6 +768,22 @@ function build() {
     earthMesh.material.color.set(0xffffff);
     earthMesh.material.needsUpdate = true;
   }, undefined, () => {});
+}
+
+function createPanoSphere(panoTexture) {
+  skySphere = new THREE.Mesh(
+    new THREE.SphereGeometry(SKY_RADIUS, 64, 32),
+    new THREE.MeshBasicMaterial({
+      map: panoTexture,
+      side: THREE.BackSide,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+    })
+  );
+  skySphere.rotation.y = Math.PI;
+  skySphere.renderOrder = 1;
+  scene.add(skySphere);
 }
 
 // ============ 放置门 ============
@@ -887,11 +847,16 @@ function updateTransition(xrCam, delta) {
   
   // 门内世界
   if (skySphere) skySphere.material.opacity = smooth;
+  if (galaxyModel) {
+    galaxyModel.traverse((child) => {
+      if (child.isMesh) child.material.opacity = smooth;
+    });
+  }
   if (skyStars) skyStars.material.opacity = smooth;
   if (floatingStars) floatingStars.material.opacity = smooth;
   if (brightStars) brightStars.material.opacity = smooth;
   
-  // 天体透明度
+  // 天体
   if (moonMesh) moonMesh.material.opacity = smooth;
   if (earthMesh) earthMesh.material.opacity = smooth;
   
@@ -904,22 +869,47 @@ function updateTransition(xrCam, delta) {
   if (portalMask) portalMask.visible = smooth < 0.99;
 }
 
-// ============ 更新天体 ============
+// ============ 更新天体位置 ============
 function updateCelestialBodies(time, delta) {
   const xrCam = renderer.xr.getCamera(camera);
   xrCam.getWorldPosition(_camPos);
   
-  // 月球 - 左上方
-  if (moonMesh) {
-    moonMesh.position.set(_camPos.x - 10, _camPos.y + 6, _camPos.z - 15);
-    moonMesh.rotation.y += delta * 0.1;
+  // 获取门的朝向
+  const doorForward = new THREE.Vector3(0, 0, -1);
+  if (doorGroup) {
+    doorForward.applyQuaternion(doorGroup.quaternion);
+  }
+  const doorRight = new THREE.Vector3(1, 0, 0);
+  if (doorGroup) {
+    doorRight.applyQuaternion(doorGroup.quaternion);
   }
   
-  // 地球 - 右下方
-  if (earthMesh) {
-    earthMesh.position.set(_camPos.x + 12, _camPos.y - 2, _camPos.z - 20);
-    earthMesh.rotation.y += delta * 0.12;
+  // 月球 - 门内左前方，距离用户约6米，可以走近
+  if (moonMesh) {
+    const moonBasePos = doorPlanePoint.clone()
+      .addScaledVector(doorForward, -8)
+      .addScaledVector(doorRight, -5);
+    moonBasePos.y = doorPlanePoint.y + 2;
+    moonMesh.position.copy(moonBasePos);
+    moonMesh.rotation.y += delta * 0.05;
   }
+  
+  // 地球 - 门内右前方，距离稍远但更大
+  if (earthMesh) {
+    const earthBasePos = doorPlanePoint.clone()
+      .addScaledVector(doorForward, -12)
+      .addScaledVector(doorRight, 7);
+    earthBasePos.y = doorPlanePoint.y + 1;
+    earthMesh.position.copy(earthBasePos);
+    earthMesh.rotation.y += delta * 0.08;
+  }
+  
+  // 天球跟随相机
+  if (skySphere) skySphere.position.copy(_camPos);
+  if (galaxyModel) galaxyModel.position.copy(_camPos);
+  if (skyStars) skyStars.position.copy(_camPos);
+  if (floatingStars) floatingStars.position.copy(_camPos);
+  if (brightStars) brightStars.position.copy(_camPos);
 }
 
 // ============ 渲染 ============
@@ -958,12 +948,6 @@ function render(_, frame) {
     updateTransition(xrCam, delta);
     updateMeteors(delta);
     updateCelestialBodies(time, delta);
-
-    xrCam.getWorldPosition(_camPos);
-    if (skySphere) skySphere.position.copy(_camPos);
-    if (skyStars) skyStars.position.copy(_camPos);
-    if (floatingStars) floatingStars.position.copy(_camPos);
-    if (brightStars) brightStars.position.copy(_camPos);
     
     updateStars(starData, time);
     updateStars(previewStarData, time);
@@ -987,6 +971,7 @@ function reset() {
   
   if (doorGroup) { scene.remove(doorGroup); doorGroup = null; }
   if (skySphere) { scene.remove(skySphere); skySphere = null; }
+  if (galaxyModel) { scene.remove(galaxyModel); galaxyModel = null; }
   if (skyStars) { scene.remove(skyStars); skyStars = null; }
   if (floatingStars) { scene.remove(floatingStars); floatingStars = null; }
   if (brightStars) { scene.remove(brightStars); brightStars = null; }
