@@ -24,7 +24,6 @@ let floatingStars = null;
 let brightStars = null;
 let moonModel = null;
 let earthModel = null;
-let nebulaPlane = null;
 let placed = false;
 let isInside = false;
 
@@ -119,24 +118,26 @@ function initTouchEvents() {
   const canvas = renderer.domElement;
   
   canvas.addEventListener("touchstart", (e) => {
-    if (!placed || !isInside) return;
+    if (!placed) return;
     isTouching = true;
     touchPoints = [];
     const touch = e.touches[0];
-    touchPoints.push({ x: touch.clientX, y: touch.clientY });
+    touchPoints.push({ x: touch.clientX, y: touch.clientY, time: performance.now() });
   }, { passive: true });
   
   canvas.addEventListener("touchmove", (e) => {
     if (!isTouching) return;
     const touch = e.touches[0];
-    touchPoints.push({ x: touch.clientX, y: touch.clientY });
-    if (touchPoints.length > 15) touchPoints.shift();
+    touchPoints.push({ x: touch.clientX, y: touch.clientY, time: performance.now() });
+    if (touchPoints.length > 20) touchPoints.shift();
   }, { passive: true });
   
   canvas.addEventListener("touchend", () => {
     if (!isTouching) return;
     isTouching = false;
-    if (touchPoints.length >= 2) spawnMeteor();
+    if (touchPoints.length >= 2 && isInside) {
+      spawnMeteor();
+    }
     touchPoints = [];
   }, { passive: true });
 }
@@ -446,7 +447,7 @@ function updateBrightStars(data, time) {
   points.geometry.attributes.color.needsUpdate = true;
 }
 
-// ============ 精致流星（纯粒子拖尾，无Sprite）============
+// ============ 简化流星（使用PointsMaterial + Line）============
 function spawnMeteor() {
   if (touchPoints.length < 2) return;
   
@@ -455,7 +456,7 @@ function spawnMeteor() {
   const dx = end.x - start.x;
   const dy = end.y - start.y;
   const len = Math.sqrt(dx * dx + dy * dy);
-  if (len < 30) return;
+  if (len < 25) return;
   
   const xrCam = renderer.xr.getCamera(camera);
   xrCam.getWorldPosition(_camPos);
@@ -467,145 +468,124 @@ function spawnMeteor() {
   const dir3D = new THREE.Vector3()
     .addScaledVector(camRight, dx / len)
     .addScaledVector(camUp, -dy / len)
-    .addScaledVector(camForward, 0.1)
+    .addScaledVector(camForward, 0.15)
     .normalize();
   
   const spawnPos = _camPos.clone()
-    .add(camForward.clone().multiplyScalar(12 + Math.random() * 6))
-    .add(camUp.clone().multiplyScalar(3 + Math.random() * 5))
+    .add(camForward.clone().multiplyScalar(10 + Math.random() * 8))
+    .add(camUp.clone().multiplyScalar(2 + Math.random() * 5))
     .add(camRight.clone().multiplyScalar((Math.random() - 0.5) * 8));
   
-  const meteor = createPureMeteor(spawnPos, dir3D);
+  const meteor = createSimpleMeteor(spawnPos, dir3D);
   scene.add(meteor);
   meteors.push(meteor);
 }
 
-function createPureMeteor(pos, dir) {
+function createSimpleMeteor(pos, dir) {
   const group = new THREE.Group();
   group.position.copy(pos);
   
-  // 流星完全由渐变粒子组成，没有Sprite
-  const tailLength = 1.8 + Math.random() * 1.0;
-  const particleCount = 50;
+  const tailLength = 1.5 + Math.random() * 1.0;
   
-  const positions = new Float32Array(particleCount * 3);
-  const colors = new Float32Array(particleCount * 3);
-  const sizes = new Float32Array(particleCount);
-  
-  for (let i = 0; i < particleCount; i++) {
-    const t = i / (particleCount - 1);
-    const tCurve = Math.pow(t, 0.7);
-    
-    // 沿飞行方向分布，越往后越散
-    const spread = t * t * 0.02;
-    positions[i * 3] = -dir.x * tCurve * tailLength + (Math.random() - 0.5) * spread;
-    positions[i * 3 + 1] = -dir.y * tCurve * tailLength + (Math.random() - 0.5) * spread;
-    positions[i * 3 + 2] = -dir.z * tCurve * tailLength + (Math.random() - 0.5) * spread;
-    
-    // 渐变颜色：白 → 淡黄 → 橙 → 淡蓝
-    const fade = Math.pow(1 - t, 1.5);
-    let r, g, b;
-    if (t < 0.1) {
-      r = 1; g = 1; b = 1;
-    } else if (t < 0.3) {
-      const blend = (t - 0.1) / 0.2;
-      r = 1; g = 1 - blend * 0.08; b = 1 - blend * 0.25;
-    } else if (t < 0.6) {
-      const blend = (t - 0.3) / 0.3;
-      r = 1 - blend * 0.1; g = 0.92 - blend * 0.15; b = 0.75 - blend * 0.1;
-    } else {
-      const blend = (t - 0.6) / 0.4;
-      r = 0.9 - blend * 0.35; g = 0.77 - blend * 0.07; b = 0.65 + blend * 0.25;
-    }
-    
-    colors[i * 3] = r * fade;
-    colors[i * 3 + 1] = g * fade;
-    colors[i * 3 + 2] = b * fade;
-    
-    // 大小：头部大，尾部小
-    sizes[i] = (1 - t * 0.85) * 0.06;
-  }
-  
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-  geo.setAttribute("size", new THREE.BufferAttribute(sizes, 1));
-  
-  // 使用自定义shader实现圆形粒子
-  const mat = new THREE.ShaderMaterial({
+  // 流星核心 - 小球
+  const coreGeo = new THREE.SphereGeometry(0.02, 8, 8);
+  const coreMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
     transparent: true,
+    opacity: 1,
+  });
+  const core = new THREE.Mesh(coreGeo, coreMat);
+  group.add(core);
+  
+  // 光晕
+  const glowMat = new THREE.PointsMaterial({
+    map: starTexture,
+    size: 0.2,
+    color: 0xffeedd,
+    transparent: true,
+    opacity: 0.9,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
-    uniforms: {
-      uOpacity: { value: 1.0 },
-    },
-    vertexShader: `
-      attribute float size;
-      varying vec3 vColor;
-      void main() {
-        vColor = color;
-        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-        gl_PointSize = size * (300.0 / -mvPosition.z);
-        gl_Position = projectionMatrix * mvPosition;
-      }
-    `,
-    fragmentShader: `
-      uniform float uOpacity;
-      varying vec3 vColor;
-      void main() {
-        float dist = length(gl_PointCoord - vec2(0.5));
-        if (dist > 0.5) discard;
-        float alpha = smoothstep(0.5, 0.1, dist);
-        gl_FragColor = vec4(vColor, alpha * uOpacity);
-      }
-    `,
+  });
+  const glowGeo = new THREE.BufferGeometry();
+  glowGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array([0, 0, 0]), 3));
+  const glow = new THREE.Points(glowGeo, glowMat);
+  group.add(glow);
+  
+  // 拖尾粒子
+  const trailCount = 35;
+  const trailPositions = new Float32Array(trailCount * 3);
+  const trailColors = new Float32Array(trailCount * 3);
+  
+  for (let i = 0; i < trailCount; i++) {
+    const t = i / (trailCount - 1);
+    const tCurve = Math.pow(t, 0.6);
+    const spread = t * t * 0.015;
+    
+    trailPositions[i * 3] = -dir.x * tCurve * tailLength + (Math.random() - 0.5) * spread;
+    trailPositions[i * 3 + 1] = -dir.y * tCurve * tailLength + (Math.random() - 0.5) * spread;
+    trailPositions[i * 3 + 2] = -dir.z * tCurve * tailLength + (Math.random() - 0.5) * spread;
+    
+    const fade = Math.pow(1 - t, 1.5);
+    let r, g, b;
+    if (t < 0.15) {
+      r = 1; g = 1; b = 1;
+    } else if (t < 0.4) {
+      const blend = (t - 0.15) / 0.25;
+      r = 1; g = 1 - blend * 0.1; b = 1 - blend * 0.3;
+    } else if (t < 0.7) {
+      const blend = (t - 0.4) / 0.3;
+      r = 1 - blend * 0.1; g = 0.9 - blend * 0.12; b = 0.7 - blend * 0.05;
+    } else {
+      const blend = (t - 0.7) / 0.3;
+      r = 0.9 - blend * 0.3; g = 0.78 - blend * 0.08; b = 0.65 + blend * 0.2;
+    }
+    
+    trailColors[i * 3] = r * fade;
+    trailColors[i * 3 + 1] = g * fade;
+    trailColors[i * 3 + 2] = b * fade;
+  }
+  
+  const trailGeo = new THREE.BufferGeometry();
+  trailGeo.setAttribute("position", new THREE.BufferAttribute(trailPositions, 3));
+  trailGeo.setAttribute("color", new THREE.BufferAttribute(trailColors, 3));
+  
+  const trailMat = new THREE.PointsMaterial({
+    map: starTexture,
+    size: 0.05,
     vertexColors: true,
+    transparent: true,
+    opacity: 1,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    sizeAttenuation: true,
   });
   
-  const particles = new THREE.Points(geo, mat);
-  group.add(particles);
+  const trail = new THREE.Points(trailGeo, trailMat);
+  group.add(trail);
   
-  // 额外的细线拖尾
-  const linePoints = [];
-  for (let i = 0; i < 25; i++) {
-    const t = i / 24;
-    linePoints.push(new THREE.Vector3(
+  // 细线
+  const linePositions = [];
+  for (let i = 0; i < 20; i++) {
+    const t = i / 19;
+    linePositions.push(
       -dir.x * t * tailLength,
       -dir.y * t * tailLength,
       -dir.z * t * tailLength
-    ));
+    );
   }
   
-  const lineCurve = new THREE.CatmullRomCurve3(linePoints);
-  const lineGeo = new THREE.TubeGeometry(lineCurve, 20, 0.008, 4, false);
-  const lineMat = new THREE.ShaderMaterial({
+  const lineGeo = new THREE.BufferGeometry();
+  lineGeo.setAttribute("position", new THREE.Float32BufferAttribute(linePositions, 3));
+  
+  const lineMat = new THREE.LineBasicMaterial({
+    color: 0xffffff,
     transparent: true,
+    opacity: 0.4,
     blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    uniforms: {
-      uOpacity: { value: 1.0 },
-    },
-    vertexShader: `
-      varying vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
-    fragmentShader: `
-      uniform float uOpacity;
-      varying vec2 vUv;
-      void main() {
-        float t = vUv.x;
-        float fade = pow(1.0 - t, 2.0);
-        vec3 col = mix(vec3(1.0, 1.0, 1.0), vec3(0.6, 0.7, 0.9), t);
-        float edge = 1.0 - abs(vUv.y - 0.5) * 2.0;
-        gl_FragColor = vec4(col, fade * edge * uOpacity * 0.6);
-      }
-    `,
   });
   
-  const line = new THREE.Mesh(lineGeo, lineMat);
+  const line = new THREE.Line(lineGeo, lineMat);
   group.add(line);
   
   group.userData = {
@@ -613,8 +593,10 @@ function createPureMeteor(pos, dir) {
     speed: 2 + Math.random() * 1.5,
     life: 0,
     maxLife: 5 + Math.random() * 3,
-    particleMat: mat,
-    lineMat: lineMat,
+    coreMat,
+    glowMat,
+    trailMat,
+    lineMat,
   };
   
   return group;
@@ -636,8 +618,10 @@ function updateMeteors(delta) {
       fade = Math.pow(1 - (progress - 0.1) / 0.9, 0.5);
     }
     
-    d.particleMat.uniforms.uOpacity.value = fade;
-    d.lineMat.uniforms.uOpacity.value = fade;
+    d.coreMat.opacity = fade;
+    d.glowMat.opacity = fade * 0.9;
+    d.trailMat.opacity = fade;
+    d.lineMat.opacity = fade * 0.4;
     
     if (d.life >= d.maxLife) {
       scene.remove(m);
@@ -732,7 +716,6 @@ function build() {
   doorGroup.add(ambientStars);
 
   // ===== 门内世界 =====
-  // 天球
   skySphere = new THREE.Mesh(
     new THREE.SphereGeometry(SKY_RADIUS, 64, 32),
     new THREE.MeshBasicMaterial({
@@ -746,89 +729,74 @@ function build() {
   skySphere.renderOrder = 1;
   scene.add(skySphere);
 
-  // 球面星星
   starData = createStars(4000, SKY_RADIUS * 0.95, 0.22, false);
   skyStars = starData.points;
   skyStars.material.opacity = 0;
   skyStars.renderOrder = 2;
   scene.add(skyStars);
 
-  // 浮动星星
   floatingStarData = createFloatingStars(1000, SKY_RADIUS * 0.1, SKY_RADIUS * 0.4, 0.25);
   floatingStars = floatingStarData.points;
   floatingStars.material.opacity = 0;
   floatingStars.renderOrder = 3;
   scene.add(floatingStars);
 
-  // 亮星
   brightStarData = createBrightStars(40, SKY_RADIUS * 0.9);
   brightStars = brightStarData.points;
   brightStars.material.opacity = 0;
   brightStars.renderOrder = 4;
   scene.add(brightStars);
 
-  // ===== 加载星云 =====
-  const nebulaTexture = texLoader.load(`${BASE}textures/nebula.png`);
-  nebulaTexture.colorSpace = THREE.SRGBColorSpace;
-  
-  const nebulaMat = new THREE.MeshBasicMaterial({
-    map: nebulaTexture,
-    transparent: true,
-    opacity: 0,
-    side: THREE.DoubleSide,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  });
-  
-  nebulaPlane = new THREE.Mesh(new THREE.PlaneGeometry(25, 25), nebulaMat);
-  nebulaPlane.renderOrder = 5;
-  scene.add(nebulaPlane);
-
   // ===== 加载月球 =====
   gltfLoader.load(`${BASE}models/moon.glb`, (gltf) => {
     moonModel = gltf.scene;
-    moonModel.scale.setScalar(1.5);
-    moonModel.renderOrder = 6;
+    moonModel.scale.setScalar(1.2);
+    moonModel.renderOrder = 10;
+    moonModel.visible = true;
     
-    // 设置材质为透明
+    // 将所有材质设置为透明
     moonModel.traverse((child) => {
       if (child.isMesh) {
-        const oldMat = child.material;
+        // 保存原始贴图
+        const originalMap = child.material.map;
         child.material = new THREE.MeshBasicMaterial({
-          map: oldMat.map || null,
-          color: oldMat.color || 0xcccccc,
+          map: originalMap,
           transparent: true,
           opacity: 0,
+          side: THREE.FrontSide,
         });
       }
     });
     
     scene.add(moonModel);
+    console.log("Moon loaded successfully");
   }, undefined, (err) => {
-    console.log("Moon load failed:", err);
+    console.warn("Moon load failed:", err);
   });
 
   // ===== 加载地球 =====
   gltfLoader.load(`${BASE}models/earth.glb`, (gltf) => {
     earthModel = gltf.scene;
-    earthModel.scale.setScalar(3);
-    earthModel.renderOrder = 6;
+    earthModel.scale.setScalar(2.5);
+    earthModel.renderOrder = 10;
+    earthModel.visible = true;
     
     earthModel.traverse((child) => {
       if (child.isMesh) {
-        const oldMat = child.material;
+        const originalMap = child.material.map;
         child.material = new THREE.MeshBasicMaterial({
-          map: oldMat.map || null,
-          color: oldMat.color || 0x4488ff,
+          map: originalMap,
           transparent: true,
           opacity: 0,
+          side: THREE.FrontSide,
         });
       }
     });
     
     scene.add(earthModel);
+    console.log("Earth loaded successfully");
   }, undefined, (err) => {
-    console.log("Earth load failed:", err);
+    console.warn("Earth load failed:", err);
   });
 }
 
@@ -888,7 +856,6 @@ function updateTransition(xrCam, delta) {
   transitionValue += (target - transitionValue) * delta * speed;
   transitionValue = Math.max(0, Math.min(1, transitionValue));
   
-  // smootherstep
   const t = transitionValue;
   const smooth = t * t * t * (t * (t * 6 - 15) + 10);
   
@@ -897,7 +864,6 @@ function updateTransition(xrCam, delta) {
   if (skyStars) skyStars.material.opacity = smooth;
   if (floatingStars) floatingStars.material.opacity = smooth;
   if (brightStars) brightStars.material.opacity = smooth;
-  if (nebulaPlane) nebulaPlane.material.opacity = smooth * 0.35;
   
   // 天体透明度
   if (moonModel) {
@@ -925,22 +891,16 @@ function updateCelestialBodies(time, delta) {
   const xrCam = renderer.xr.getCamera(camera);
   xrCam.getWorldPosition(_camPos);
   
-  // 星云位置
-  if (nebulaPlane) {
-    nebulaPlane.position.set(_camPos.x + 18, _camPos.y + 12, _camPos.z - 35);
-    nebulaPlane.lookAt(_camPos);
-  }
-  
-  // 月球位置和自转
+  // 月球
   if (moonModel) {
-    moonModel.position.set(_camPos.x - 15, _camPos.y + 10, _camPos.z - 25);
+    moonModel.position.set(_camPos.x - 12, _camPos.y + 8, _camPos.z - 20);
     moonModel.rotation.y += delta * 0.1;
   }
   
-  // 地球位置和自转
+  // 地球
   if (earthModel) {
-    earthModel.position.set(_camPos.x + 20, _camPos.y - 3, _camPos.z - 35);
-    earthModel.rotation.y += delta * 0.15;
+    earthModel.position.set(_camPos.x + 15, _camPos.y - 2, _camPos.z - 28);
+    earthModel.rotation.y += delta * 0.12;
   }
 }
 
@@ -1012,7 +972,6 @@ function reset() {
   if (skyStars) { scene.remove(skyStars); skyStars = null; }
   if (floatingStars) { scene.remove(floatingStars); floatingStars = null; }
   if (brightStars) { scene.remove(brightStars); brightStars = null; }
-  if (nebulaPlane) { scene.remove(nebulaPlane); nebulaPlane = null; }
   if (moonModel) { scene.remove(moonModel); moonModel = null; }
   if (earthModel) { scene.remove(earthModel); earthModel = null; }
   
