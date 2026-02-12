@@ -5,7 +5,7 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 const BASE = import.meta.env.BASE_URL;
 
 // ============ 版本切换 ============
-const USE_GLB_GALAXY = true;
+const USE_GLB_GALAXY = false;
 
 // ============ 配置 ============
 const DOOR_HEIGHT = 2.1;
