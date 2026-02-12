@@ -217,10 +217,9 @@ function createStarTexture() {
 }
 
 // ============ 流星 ============
+// ============ 流星系统 ============
 function spawnMeteor() {
-  if (touchPoints.length < 3) {
-    return;
-  }
+  if (touchPoints.length < 3) return;
   
   const start = touchPoints[0];
   const end = touchPoints[touchPoints.length - 1];
@@ -228,8 +227,19 @@ function spawnMeteor() {
   const dy = end.y - start.y;
   const len = Math.sqrt(dx * dx + dy * dy);
   
-  if (len < 30) {
-    return;
+  if (len < 30) return;
+  
+  // 计算用户滑动的曲率（通过中间点偏离直线的程度）
+  let userCurvature = 0;
+  if (touchPoints.length >= 5) {
+    const midIdx = Math.floor(touchPoints.length / 2);
+    const mid = touchPoints[midIdx];
+    const midExpectedX = (start.x + end.x) / 2;
+    const midExpectedY = (start.y + end.y) / 2;
+    const perpX = -dy / len;
+    const perpY = dx / len;
+    const offsetDist = (mid.x - midExpectedX) * perpX + (mid.y - midExpectedY) * perpY;
+    userCurvature = offsetDist / len * 8;
   }
   
   const xrCam = renderer.xr.getCamera(camera);
@@ -239,61 +249,59 @@ function spawnMeteor() {
   const camUp = new THREE.Vector3(0, 1, 0).applyQuaternion(xrCam.quaternion);
   const camForward = new THREE.Vector3(0, 0, -1).applyQuaternion(xrCam.quaternion);
   
-  // 修正：滑动方向映射到3D空间
-  const ndx = dx / len;  // 归一化
+  const ndx = dx / len;
   const ndy = dy / len;
   
-  // 滑动方向 -> 飞行方向（更强的水平/垂直分量）
+  // 飞行方向：跟随用户滑动
   const flyDir = new THREE.Vector3()
-    .addScaledVector(camRight, ndx * 0.9)      // 水平方向
-    .addScaledVector(camUp, -ndy * 0.7)        // 垂直方向（屏幕Y轴反向）
-    .addScaledVector(camForward, 0.5)          // 向前飞
+    .addScaledVector(camRight, ndx * 0.85)
+    .addScaledVector(camUp, -ndy * 0.75)
+    .addScaledVector(camForward, 0.4)
     .normalize();
   
-  // 生成起点：在滑动起始位置对应的方向
-  const spawnOffset = new THREE.Vector3()
-    .addScaledVector(camRight, -ndx * 3)       // 从滑动反方向开始
-    .addScaledVector(camUp, ndy * 2 + 3);      // 稍微偏上
-  
+  // 起点：在滑动方向的反向（让流星从"来的方向"飞来）
   const spawnPos = _camPos.clone()
-    .add(camForward.clone().multiplyScalar(8 + Math.random() * 5))
-    .add(spawnOffset);
+    .add(camForward.clone().multiplyScalar(6 + Math.random() * 4))
+    .add(camRight.clone().multiplyScalar(-ndx * 4 + (Math.random() - 0.5) * 2))
+    .add(camUp.clone().multiplyScalar(ndy * 3 + 2 + Math.random() * 2));
   
-  const meteor = createArcMeteor(spawnPos, flyDir);
+  const meteor = createArcMeteor(spawnPos, flyDir, userCurvature, xrCam);
   scene.add(meteor);
   meteors.push(meteor);
 }
 
-
-function createArcMeteor(startPos, baseDir) {
+function createArcMeteor(startPos, baseDir, userCurvature, xrCam) {
   const group = new THREE.Group();
-  group.renderOrder = 50;  // 关键！确保在最前面渲染
+  group.renderOrder = 50;
   
-  // 弧线参数
-  const arcLength = 15 + Math.random() * 10;
-  const arcBend = (Math.random() - 0.5) * 1.0;
-  const gravity = -0.25 - Math.random() * 0.15;
+  // 弧线参数 - 更明显的圆弧
+  const arcLength = 20 + Math.random() * 15;
+  const arcBend = userCurvature + (Math.random() - 0.5) * 3;  // 用户曲率 + 随机
+  const gravity = -0.35 - Math.random() * 0.25;
   
   let perpendicular = new THREE.Vector3().crossVectors(baseDir, new THREE.Vector3(0, 1, 0));
-  if (perpendicular.length() < 0.1) perpendicular.set(1, 0, 0);
+  if (perpendicular.length() < 0.1) {
+    perpendicular.crossVectors(baseDir, new THREE.Vector3(1, 0, 0));
+  }
   perpendicular.normalize();
   
+  // 贝塞尔曲线控制点 - 更明显的弧度
   const p0 = startPos.clone();
   const p1 = startPos.clone()
-    .addScaledVector(baseDir, arcLength * 0.33)
-    .addScaledVector(perpendicular, arcBend)
-    .add(new THREE.Vector3(0, gravity * arcLength * 0.2, 0));
+    .addScaledVector(baseDir, arcLength * 0.3)
+    .addScaledVector(perpendicular, arcBend * 1.2)
+    .add(new THREE.Vector3(0, gravity * arcLength * 0.1, 0));
   const p2 = startPos.clone()
-    .addScaledVector(baseDir, arcLength * 0.66)
-    .addScaledVector(perpendicular, arcBend * 0.5)
-    .add(new THREE.Vector3(0, gravity * arcLength * 0.5, 0));
+    .addScaledVector(baseDir, arcLength * 0.65)
+    .addScaledVector(perpendicular, arcBend * 0.6)
+    .add(new THREE.Vector3(0, gravity * arcLength * 0.35, 0));
   const p3 = startPos.clone()
     .addScaledVector(baseDir, arcLength)
-    .add(new THREE.Vector3(0, gravity * arcLength * 1.0, 0));
+    .add(new THREE.Vector3(0, gravity * arcLength * 0.75, 0));
   
   const curve = new THREE.CubicBezierCurve3(p0, p1, p2, p3);
   
-  // 流星核心
+  // ===== 流星核心（更大）=====
   const coreMat = new THREE.SpriteMaterial({
     map: starTexture,
     color: 0xffffff,
@@ -301,14 +309,14 @@ function createArcMeteor(startPos, baseDir) {
     opacity: 1,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
-    depthTest: false,  // 关键！忽略深度测试
+    depthTest: false,
   });
   const coreSprite = new THREE.Sprite(coreMat);
-  coreSprite.scale.set(0.6, 0.2, 1);
-  coreSprite.renderOrder = 51;
+  coreSprite.scale.set(1.0, 0.4, 1);
+  coreSprite.renderOrder = 52;
   group.add(coreSprite);
   
-  // 内核亮点
+  // 内核亮点（更大）
   const innerMat = new THREE.SpriteMaterial({
     map: starTexture,
     color: 0xffffff,
@@ -319,28 +327,27 @@ function createArcMeteor(startPos, baseDir) {
     depthTest: false,
   });
   const innerSprite = new THREE.Sprite(innerMat);
-  innerSprite.scale.set(0.25, 0.25, 1);
-  innerSprite.position.set(-0.1, 0, 0);
-  innerSprite.renderOrder = 52;
+  innerSprite.scale.set(0.5, 0.5, 1);
+  innerSprite.renderOrder = 53;
   group.add(innerSprite);
   
-  // 外层光晕
+  // 外层光晕（更大）
   const glowMat = new THREE.SpriteMaterial({
     map: starTexture,
     color: 0xffffee,
     transparent: true,
-    opacity: 0.5,
+    opacity: 0.4,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
     depthTest: false,
   });
   const glowSprite = new THREE.Sprite(glowMat);
-  glowSprite.scale.set(0.9, 0.35, 1);
-  glowSprite.renderOrder = 50;
+  glowSprite.scale.set(1.5, 0.6, 1);
+  glowSprite.renderOrder = 51;
   group.add(glowSprite);
   
-  // 拖尾粒子
-  const trailCount = 35;
+  // ===== 拖尾粒子（更多、更长）=====
+  const trailCount = 60;
   const trailPositions = new Float32Array(trailCount * 3);
   const trailColors = new Float32Array(trailCount * 3);
   
@@ -359,27 +366,28 @@ function createArcMeteor(startPos, baseDir) {
   
   const trailMat = new THREE.PointsMaterial({
     map: starTexture,
-    size: 0.15,
+    size: 0.22,
     vertexColors: true,
     transparent: true,
     opacity: 1,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
-    depthTest: false,  // 关键！
+    depthTest: false,
     sizeAttenuation: true,
   });
   
   const trail = new THREE.Points(trailGeo, trailMat);
   trail.frustumCulled = false;
-  trail.renderOrder = 49;  // 拖尾在本体后面
+  trail.renderOrder = 49;
   scene.add(trail);
   
+  // 保存相机引用用于计算屏幕空间角度
   group.userData = {
     curve,
     progress: 0,
-    speed: 0.15 + Math.random() * 0.05,
+    speed: 0.10 + Math.random() * 0.04,
     life: 0,
-    maxLife: 3 + Math.random() * 1.5,
+    maxLife: 4.5 + Math.random() * 2,
     coreMat,
     innerMat,
     glowMat,
@@ -390,15 +398,19 @@ function createArcMeteor(startPos, baseDir) {
     trail,
     history: [],
     coreSprite,
+    innerSprite,
     glowSprite,
-    baseDir,
+    trailCount,
   };
   
   return group;
 }
 
-
 function updateMeteors(delta) {
+  const xrCam = renderer.xr.getCamera(camera);
+  const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(xrCam.quaternion);
+  const camUp = new THREE.Vector3(0, 1, 0).applyQuaternion(xrCam.quaternion);
+  
   for (let i = meteors.length - 1; i >= 0; i--) {
     const m = meteors[i];
     const d = m.userData;
@@ -408,35 +420,41 @@ function updateMeteors(delta) {
     
     const t = Math.min(d.progress, 1);
     const pos = d.curve.getPoint(t);
+    const tangent = d.curve.getTangent(t).normalize();
     
+    // 移动流星到当前位置
     m.position.copy(pos);
     
-    // 让流星朝向飞行方向
-    const tangent = d.curve.getTangent(t);
-    const angle = Math.atan2(tangent.y, Math.sqrt(tangent.x * tangent.x + tangent.z * tangent.z));
-    d.coreSprite.material.rotation = Math.atan2(-tangent.y, tangent.x);
-    d.glowSprite.material.rotation = d.coreSprite.material.rotation;
+    // ===== 关键修复：计算屏幕空间的旋转角度 =====
+    // 将切线投影到相机的屏幕平面
+    const tangentScreenX = tangent.dot(camRight);
+    const tangentScreenY = tangent.dot(camUp);
+    const screenAngle = Math.atan2(tangentScreenY, tangentScreenX);
     
-    // 记录历史位置（用于拖尾）
+    // 应用旋转，让椭圆长轴指向飞行方向
+    d.coreSprite.material.rotation = screenAngle;
+    d.glowSprite.material.rotation = screenAngle;
+    
+    // ===== 拖尾：记录历史位置 =====
     d.history.unshift(pos.clone());
-    if (d.history.length > 35) d.history.pop();
+    if (d.history.length > d.trailCount) d.history.pop();
     
-    // ===== 更新拖尾 =====
+    // 更新拖尾
     const historyLen = d.history.length;
-    for (let j = 0; j < 35; j++) {
+    for (let j = 0; j < d.trailCount; j++) {
       if (j < historyLen) {
         const hp = d.history[j];
         d.trailPositions[j * 3] = hp.x;
         d.trailPositions[j * 3 + 1] = hp.y;
         d.trailPositions[j * 3 + 2] = hp.z;
         
-        // 渐变：白 → 黄 → 橙，同时淡出
-        const fade = Math.pow(1 - j / 35, 1.5);
-        const colorT = j / 35;
+        // 颜色渐变：白 → 黄 → 橙红，同时淡出
+        const fadeProgress = j / d.trailCount;
+        const fade = Math.pow(1 - fadeProgress, 1.2);
         
-        d.trailColors[j * 3] = fade;                          // R
-        d.trailColors[j * 3 + 1] = (1 - colorT * 0.3) * fade; // G
-        d.trailColors[j * 3 + 2] = (1 - colorT * 0.7) * fade; // B
+        d.trailColors[j * 3] = fade;                              // R
+        d.trailColors[j * 3 + 1] = (1 - fadeProgress * 0.35) * fade; // G
+        d.trailColors[j * 3 + 2] = (1 - fadeProgress * 0.75) * fade; // B
       } else {
         d.trailColors[j * 3] = 0;
         d.trailColors[j * 3 + 1] = 0;
@@ -447,18 +465,18 @@ function updateMeteors(delta) {
     d.trailGeo.attributes.position.needsUpdate = true;
     d.trailGeo.attributes.color.needsUpdate = true;
     
-    // 整体生命周期淡出
+    // 生命周期淡入淡出
     const lifeRatio = d.life / d.maxLife;
     let opacity;
-    if (lifeRatio < 0.1) {
-      opacity = lifeRatio / 0.1;  // 淡入
+    if (lifeRatio < 0.08) {
+      opacity = lifeRatio / 0.08;
     } else {
-      opacity = Math.pow(1 - (lifeRatio - 0.1) / 0.9, 0.5);  // 淡出
+      opacity = Math.pow(1 - (lifeRatio - 0.08) / 0.92, 0.6);
     }
     
     d.coreMat.opacity = opacity;
     d.innerMat.opacity = opacity;
-    d.glowMat.opacity = opacity * 0.5;
+    d.glowMat.opacity = opacity * 0.4;
     d.trailMat.opacity = opacity;
     
     // 移除完成的流星
