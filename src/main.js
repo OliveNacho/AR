@@ -4,8 +4,8 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 const BASE = import.meta.env.BASE_URL;
 
-// ============ 版本切换 ============
-const USE_GLB_GALAXY = true;
+// ============ 版本切换（由UI控制）============
+let USE_GLB_GALAXY = true;
 
 // ============ 配置 ============
 const DOOR_HEIGHT = 2.1;
@@ -64,6 +64,9 @@ let lastSwipeDir = null;
 let starTexture = null;
 let nebulaTexture = null;
 
+// UI元素
+let statusLabel = null;
+
 // ============ 初始化 ============
 init();
 
@@ -98,6 +101,7 @@ function init() {
 
   initAudio();
   initTouchEvents();
+  createUI();
 
   const controller = renderer.xr.getController(0);
   controller.addEventListener("select", onSelect);
@@ -106,17 +110,6 @@ function init() {
   document.body.appendChild(
     ARButton.createButton(renderer, { requiredFeatures: ["hit-test"] })
   );
-
-  const modeLabel = document.createElement("div");
-  modeLabel.textContent = USE_GLB_GALAXY ? "GLB" : "Pano";
-  modeLabel.style.cssText = "position:fixed;top:10px;right:10px;z-index:9999;padding:4px 8px;background:rgba(0,100,200,0.5);color:#fff;border-radius:4px;font-size:10px;";
-  document.body.appendChild(modeLabel);
-
-  const btn = document.createElement("button");
-  btn.textContent = "Reset";
-  btn.style.cssText = "position:fixed;top:10px;left:10px;z-index:9999;padding:8px 12px;background:rgba(0,0,0,0.5);color:#fff;border:none;border-radius:6px;";
-  btn.onclick = reset;
-  document.body.appendChild(btn);
 
   addEventListener("resize", () => {
     camera.aspect = innerWidth / innerHeight;
@@ -127,83 +120,192 @@ function init() {
   renderer.setAnimationLoop(render);
 }
 
-// ============ 触摸事件 - 流星触发 ============
+// ============ 创建UI ============
+function createUI() {
+  // 状态指示器（调试用）
+  statusLabel = document.createElement("div");
+  statusLabel.style.cssText = `
+    position: fixed;
+    bottom: 100px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9999;
+    padding: 8px 16px;
+    background: rgba(0,0,0,0.7);
+    color: #fff;
+    border-radius: 20px;
+    font-size: 14px;
+    font-family: Arial, sans-serif;
+    pointer-events: none;
+  `;
+  statusLabel.textContent = "等待放置门...";
+  document.body.appendChild(statusLabel);
+
+  // 版本切换下拉菜单
+  const selectContainer = document.createElement("div");
+  selectContainer.style.cssText = `
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    z-index: 9999;
+  `;
+  
+  const select = document.createElement("select");
+  select.style.cssText = `
+    padding: 8px 12px;
+    font-size: 14px;
+    border-radius: 6px;
+    border: none;
+    background: rgba(0,100,200,0.8);
+    color: white;
+    cursor: pointer;
+    outline: none;
+  `;
+  
+  const optGLB = document.createElement("option");
+  optGLB.value = "glb";
+  optGLB.textContent = "🌌 GLB 星系";
+  optGLB.selected = USE_GLB_GALAXY;
+  
+  const optPano = document.createElement("option");
+  optPano.value = "pano";
+  optPano.textContent = "🖼️ 全景图";
+  optPano.selected = !USE_GLB_GALAXY;
+  
+  select.appendChild(optGLB);
+  select.appendChild(optPano);
+  
+  select.addEventListener("change", (e) => {
+    USE_GLB_GALAXY = e.target.value === "glb";
+    if (placed) {
+      // 如果已经放置了门，需要重置
+      reset();
+      statusLabel.textContent = `已切换到 ${USE_GLB_GALAXY ? "GLB" : "Pano"} 模式，请重新放置门`;
+    }
+  });
+  
+  selectContainer.appendChild(select);
+  document.body.appendChild(selectContainer);
+
+  // 重置按钮
+  const btn = document.createElement("button");
+  btn.textContent = "🔄 Reset";
+  btn.style.cssText = `
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    z-index: 9999;
+    padding: 8px 16px;
+    background: rgba(0,0,0,0.7);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: pointer;
+  `;
+  btn.onclick = reset;
+  document.body.appendChild(btn);
+}
+
+// ============ 触摸事件 - 流星触发（简化版）============
 function initTouchEvents() {
-  const canvas = renderer.domElement;
+  // 使用 window 而不是 canvas，确保事件被捕获
+  window.addEventListener("touchstart", onTouchStart, { passive: false });
+  window.addEventListener("touchmove", onTouchMove, { passive: false });
+  window.addEventListener("touchend", onTouchEnd, { passive: false });
+}
+
+function onTouchStart(e) {
+  if (!placed) return;
   
-  canvas.addEventListener("touchstart", (e) => {
-    if (!placed || !isInside) return;
-    isTouching = true;
+  isTouching = true;
+  touchPoints = [];
+  
+  const touch = e.touches[0];
+  touchPoints.push({ 
+    x: touch.clientX, 
+    y: touch.clientY,
+    time: performance.now()
+  });
+}
+
+function onTouchMove(e) {
+  if (!isTouching || !placed) return;
+  
+  const touch = e.touches[0];
+  touchPoints.push({ 
+    x: touch.clientX, 
+    y: touch.clientY,
+    time: performance.now()
+  });
+  
+  // 保留最近50个点
+  if (touchPoints.length > 50) {
+    touchPoints = touchPoints.slice(-50);
+  }
+}
+
+function onTouchEnd(e) {
+  if (!isTouching) return;
+  isTouching = false;
+  
+  // 检查是否在门内
+  if (!isInside) {
+    statusLabel.textContent = "⚠️ 请先进入门内再滑动";
     touchPoints = [];
-    for (let i = 0; i < e.touches.length; i++) {
-      touchPoints.push({ 
-        x: e.touches[i].clientX, 
-        y: e.touches[i].clientY,
-        time: performance.now()
-      });
-    }
-  }, { passive: true });
+    return;
+  }
   
-  canvas.addEventListener("touchmove", (e) => {
-    if (!isTouching || !isInside) return;
-    for (let i = 0; i < e.touches.length; i++) {
-      touchPoints.push({ 
-        x: e.touches[i].clientX, 
-        y: e.touches[i].clientY,
-        time: performance.now()
-      });
-    }
-    if (touchPoints.length > 50) {
-      touchPoints = touchPoints.slice(-50);
-    }
-  }, { passive: true });
-  
-  canvas.addEventListener("touchend", () => {
-    if (!isTouching) return;
-    isTouching = false;
-    
-    if (!isInside || touchPoints.length < 5) {
-      touchPoints = [];
-      return;
-    }
-    
-    const start = touchPoints[0];
-    const end = touchPoints[touchPoints.length - 1];
-    const dx = end.x - start.x;
-    const dy = end.y - start.y;
-    const len = Math.sqrt(dx * dx + dy * dy);
-    
-    if (len < 40) {
-      touchPoints = [];
-      return;
-    }
-    
-    const now = performance.now();
-    const swipeDir = { dx: dx / len, dy: dy / len };
-    
-    if (now - lastSwipeTime < 1500 && lastSwipeDir) {
-      const dot = swipeDir.dx * lastSwipeDir.dx + swipeDir.dy * lastSwipeDir.dy;
-      if (dot > 0.7) {
-        swipeHistory.push({ dx, dy, len, points: [...touchPoints] });
-      } else {
-        swipeHistory = [{ dx, dy, len, points: [...touchPoints] }];
-      }
-    } else {
-      swipeHistory = [{ dx, dy, len, points: [...touchPoints] }];
-    }
-    
-    lastSwipeTime = now;
-    lastSwipeDir = swipeDir;
-    
-    if (swipeHistory.length >= 3) {
-      spawnMeteorShower(swipeDir);
-      swipeHistory = [];
-    } else {
-      spawnSingleMeteor(swipeDir);
-    }
-    
+  // 检查滑动点数量
+  if (touchPoints.length < 3) {
     touchPoints = [];
-  }, { passive: true });
+    return;
+  }
+  
+  // 计算滑动方向和距离
+  const start = touchPoints[0];
+  const end = touchPoints[touchPoints.length - 1];
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  
+  // 滑动距离检查
+  if (len < 30) {
+    touchPoints = [];
+    return;
+  }
+  
+  const now = performance.now();
+  const swipeDir = { dx: dx / len, dy: dy / len };
+  
+  // 检查连续滑动
+  if (now - lastSwipeTime < 1500 && lastSwipeDir) {
+    const dot = swipeDir.dx * lastSwipeDir.dx + swipeDir.dy * lastSwipeDir.dy;
+    if (dot > 0.6) {
+      swipeHistory.push(swipeDir);
+    } else {
+      swipeHistory = [swipeDir];
+    }
+  } else {
+    swipeHistory = [swipeDir];
+  }
+  
+  lastSwipeTime = now;
+  lastSwipeDir = swipeDir;
+  
+  // 触发流星
+  if (swipeHistory.length >= 3) {
+    // 流星雨
+    statusLabel.textContent = "🌠 流星雨！";
+    spawnMeteorShower(swipeDir);
+    swipeHistory = [];
+  } else {
+    // 单颗流星
+    statusLabel.textContent = `✨ 流星！(${swipeHistory.length}/3)`;
+    spawnSingleMeteor(swipeDir);
+  }
+  
+  touchPoints = [];
 }
 
 function initAudio() {
@@ -283,7 +385,7 @@ function spawnMeteorShower(swipeDir) {
     setTimeout(() => {
       if (!placed) return;
       
-      const randAngle = (Math.random() - 0.5) * 0.3;
+      const randAngle = (Math.random() - 0.5) * 0.4;
       const cos = Math.cos(randAngle);
       const sin = Math.sin(randAngle);
       const rdx = swipeDir.dx * cos - swipeDir.dy * sin;
@@ -303,7 +405,7 @@ function spawnMeteorShower(swipeDir) {
       const meteor = createBeautifulMeteor(spawnPos, flyDir);
       scene.add(meteor);
       meteors.push(meteor);
-    }, i * 150 + Math.random() * 100);
+    }, i * 120 + Math.random() * 80);
   }
 }
 
@@ -314,12 +416,12 @@ function createBeautifulMeteor(startPos, baseDir) {
   const arcBend = (Math.random() - 0.5) * 2;
   const gravity = -0.3 - Math.random() * 0.3;
   
-  const perpendicular = new THREE.Vector3()
-    .crossVectors(baseDir, new THREE.Vector3(0, 1, 0))
-    .normalize();
+  let perpendicular = new THREE.Vector3()
+    .crossVectors(baseDir, new THREE.Vector3(0, 1, 0));
   if (perpendicular.length() < 0.1) {
     perpendicular.set(1, 0, 0);
   }
+  perpendicular.normalize();
   
   const p0 = startPos.clone();
   const p1 = startPos.clone()
@@ -464,13 +566,9 @@ function updateMeteors(delta) {
         const fade = Math.pow(1 - j / 30, 1.8);
         const ct = j / 30;
         
-        let r = 1;
-        let g = 1 - ct * 0.25;
-        let b = 1 - ct * 0.6;
-        
-        d.trailColors[j * 3] = r * fade;
-        d.trailColors[j * 3 + 1] = g * fade;
-        d.trailColors[j * 3 + 2] = b * fade;
+        d.trailColors[j * 3] = fade;
+        d.trailColors[j * 3 + 1] = (1 - ct * 0.25) * fade;
+        d.trailColors[j * 3 + 2] = (1 - ct * 0.6) * fade;
       } else {
         d.trailColors[j * 3] = 0;
         d.trailColors[j * 3 + 1] = 0;
@@ -482,12 +580,7 @@ function updateMeteors(delta) {
     d.trailGeo.attributes.color.needsUpdate = true;
     
     const lifeProgress = d.life / d.maxLife;
-    let fade;
-    if (lifeProgress < 0.1) {
-      fade = lifeProgress / 0.1;
-    } else {
-      fade = Math.pow(1 - (lifeProgress - 0.1) / 0.9, 0.6);
-    }
+    let fade = lifeProgress < 0.1 ? lifeProgress / 0.1 : Math.pow(1 - (lifeProgress - 0.1) / 0.9, 0.6);
     
     d.coreMat.opacity = fade;
     d.midGlowMat.opacity = fade * 0.7;
@@ -821,12 +914,7 @@ function createEasterEggs() {
     const sprite = new THREE.Sprite(spriteMat);
     sprite.scale.set(egg.scale, egg.scale * 0.25, 1);
     
-    sprite.userData = {
-      relPos: egg.relPos,
-      spriteMat,
-      targetOpacity: 1,
-    };
-    
+    sprite.userData = { relPos: egg.relPos, spriteMat, targetOpacity: 1 };
     eggs.push(sprite);
   });
   
@@ -1015,6 +1103,7 @@ function onSelect() {
   placed = true;
   reticle.visible = false;
 
+  statusLabel.textContent = "🚪 门已放置，请走进门内";
   playAudio();
 }
 
@@ -1031,12 +1120,23 @@ function updateTransition(xrCam, delta) {
   
   const currentSide = signedDist >= 0 ? 1 : -1;
   
+  const wasInside = isInside;
+  
   if (lastSide === 1 && currentSide === -1 && !isInside) {
     isInside = true;
   } else if (lastSide === -1 && currentSide === 1 && isInside) {
     isInside = false;
   }
   lastSide = currentSide;
+  
+  // 更新状态显示
+  if (isInside !== wasInside) {
+    if (isInside) {
+      statusLabel.textContent = "🌌 已进入门内 - 滑动屏幕生成流星！";
+    } else {
+      statusLabel.textContent = "🚪 已离开门内";
+    }
+  }
   
   const target = isInside ? 1 : 0;
   const speed = 1.8;
@@ -1196,4 +1296,5 @@ function reset() {
   ambientStarData = null;
   
   reticle.visible = false;
+  statusLabel.textContent = "等待放置门...";
 }
