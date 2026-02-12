@@ -272,11 +272,10 @@ function spawnMeteor() {
 
 function createArcMeteor(startPos, baseDir, userCurvature, xrCam) {
   const group = new THREE.Group();
-  group.renderOrder = 50;
+  group.renderOrder = 100;
   
-  // 弧线参数 - 更明显的圆弧
   const arcLength = 20 + Math.random() * 15;
-  const arcBend = userCurvature + (Math.random() - 0.5) * 3;  // 用户曲率 + 随机
+  const arcBend = userCurvature + (Math.random() - 0.5) * 3;
   const gravity = -0.35 - Math.random() * 0.25;
   
   let perpendicular = new THREE.Vector3().crossVectors(baseDir, new THREE.Vector3(0, 1, 0));
@@ -285,7 +284,6 @@ function createArcMeteor(startPos, baseDir, userCurvature, xrCam) {
   }
   perpendicular.normalize();
   
-  // 贝塞尔曲线控制点 - 更明显的弧度
   const p0 = startPos.clone();
   const p1 = startPos.clone()
     .addScaledVector(baseDir, arcLength * 0.3)
@@ -301,7 +299,7 @@ function createArcMeteor(startPos, baseDir, userCurvature, xrCam) {
   
   const curve = new THREE.CubicBezierCurve3(p0, p1, p2, p3);
   
-  // ===== 流星核心（更大）=====
+  // 流星核心
   const coreMat = new THREE.SpriteMaterial({
     map: starTexture,
     color: 0xffffff,
@@ -313,10 +311,10 @@ function createArcMeteor(startPos, baseDir, userCurvature, xrCam) {
   });
   const coreSprite = new THREE.Sprite(coreMat);
   coreSprite.scale.set(1.0, 0.4, 1);
-  coreSprite.renderOrder = 52;
+  coreSprite.renderOrder = 102;
   group.add(coreSprite);
   
-  // 内核亮点（更大）
+  // 内核亮点
   const innerMat = new THREE.SpriteMaterial({
     map: starTexture,
     color: 0xffffff,
@@ -328,10 +326,10 @@ function createArcMeteor(startPos, baseDir, userCurvature, xrCam) {
   });
   const innerSprite = new THREE.Sprite(innerMat);
   innerSprite.scale.set(0.5, 0.5, 1);
-  innerSprite.renderOrder = 53;
+  innerSprite.renderOrder = 103;
   group.add(innerSprite);
   
-  // 外层光晕（更大）
+  // 外层光晕
   const glowMat = new THREE.SpriteMaterial({
     map: starTexture,
     color: 0xffffee,
@@ -343,11 +341,11 @@ function createArcMeteor(startPos, baseDir, userCurvature, xrCam) {
   });
   const glowSprite = new THREE.Sprite(glowMat);
   glowSprite.scale.set(1.5, 0.6, 1);
-  glowSprite.renderOrder = 51;
+  glowSprite.renderOrder = 101;
   group.add(glowSprite);
   
-  // ===== 拖尾粒子（更多、更长）=====
-  const trailCount = 60;
+  // ===== 拖尾粒子（修复版）=====
+  const trailCount = 50;
   const trailPositions = new Float32Array(trailCount * 3);
   const trailColors = new Float32Array(trailCount * 3);
   
@@ -366,7 +364,7 @@ function createArcMeteor(startPos, baseDir, userCurvature, xrCam) {
   
   const trailMat = new THREE.PointsMaterial({
     map: starTexture,
-    size: 0.22,
+    size: 0.25,
     vertexColors: true,
     transparent: true,
     opacity: 1,
@@ -378,10 +376,9 @@ function createArcMeteor(startPos, baseDir, userCurvature, xrCam) {
   
   const trail = new THREE.Points(trailGeo, trailMat);
   trail.frustumCulled = false;
-  trail.renderOrder = 49;
+  trail.renderOrder = 100;  // 与流星本体同级，高于天球
   scene.add(trail);
   
-  // 保存相机引用用于计算屏幕空间角度
   group.userData = {
     curve,
     progress: 0,
@@ -422,24 +419,20 @@ function updateMeteors(delta) {
     const pos = d.curve.getPoint(t);
     const tangent = d.curve.getTangent(t).normalize();
     
-    // 移动流星到当前位置
     m.position.copy(pos);
     
-    // ===== 关键修复：计算屏幕空间的旋转角度 =====
-    // 将切线投影到相机的屏幕平面
     const tangentScreenX = tangent.dot(camRight);
     const tangentScreenY = tangent.dot(camUp);
     const screenAngle = Math.atan2(tangentScreenY, tangentScreenX);
     
-    // 应用旋转，让椭圆长轴指向飞行方向
     d.coreSprite.material.rotation = screenAngle;
     d.glowSprite.material.rotation = screenAngle;
     
-    // ===== 拖尾：记录历史位置 =====
+    // 拖尾历史
     d.history.unshift(pos.clone());
     if (d.history.length > d.trailCount) d.history.pop();
     
-    // 更新拖尾
+    // 更新拖尾位置和颜色
     const historyLen = d.history.length;
     for (let j = 0; j < d.trailCount; j++) {
       if (j < historyLen) {
@@ -448,14 +441,18 @@ function updateMeteors(delta) {
         d.trailPositions[j * 3 + 1] = hp.y;
         d.trailPositions[j * 3 + 2] = hp.z;
         
-        // 颜色渐变：白 → 黄 → 橙红，同时淡出
         const fadeProgress = j / d.trailCount;
-        const fade = Math.pow(1 - fadeProgress, 1.2);
+        const fade = Math.pow(1 - fadeProgress, 1.0);  // 更缓慢的衰减
         
-        d.trailColors[j * 3] = fade;                              // R
-        d.trailColors[j * 3 + 1] = (1 - fadeProgress * 0.35) * fade; // G
-        d.trailColors[j * 3 + 2] = (1 - fadeProgress * 0.75) * fade; // B
+        // 更亮的颜色
+        d.trailColors[j * 3] = fade;
+        d.trailColors[j * 3 + 1] = (1 - fadeProgress * 0.3) * fade;
+        d.trailColors[j * 3 + 2] = (1 - fadeProgress * 0.65) * fade;
       } else {
+        // 未使用的点移到远处并设为透明
+        d.trailPositions[j * 3] = pos.x;
+        d.trailPositions[j * 3 + 1] = pos.y;
+        d.trailPositions[j * 3 + 2] = pos.z;
         d.trailColors[j * 3] = 0;
         d.trailColors[j * 3 + 1] = 0;
         d.trailColors[j * 3 + 2] = 0;
@@ -465,7 +462,6 @@ function updateMeteors(delta) {
     d.trailGeo.attributes.position.needsUpdate = true;
     d.trailGeo.attributes.color.needsUpdate = true;
     
-    // 生命周期淡入淡出
     const lifeRatio = d.life / d.maxLife;
     let opacity;
     if (lifeRatio < 0.08) {
@@ -479,7 +475,6 @@ function updateMeteors(delta) {
     d.glowMat.opacity = opacity * 0.4;
     d.trailMat.opacity = opacity;
     
-    // 移除完成的流星
     if (d.life >= d.maxLife || d.progress >= 1) {
       scene.remove(m);
       scene.remove(d.trail);
