@@ -4,116 +4,85 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
     <title>For You</title>
-    
     <!-- 引入书写体字体 -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@600&display=swap" rel="stylesheet">
 
     <style>
-      /* 关键点1：HTML/Body 强制透明，绝不给底色 */
+      /* 初始背景为黑色，添加过渡效果以便最后平滑变透明 */
       html, body { 
         margin: 0; padding: 0; 
         overflow: hidden; 
-        background-color: transparent !important; /* 强制透明 */
+        background-color: #000; 
         height: 100%; width: 100%;
+        transition: background-color 1.5s ease-out;
       }
 
-      /* 关键点2：独立的黑色遮罩层 */
-      #black-overlay {
-        position: fixed;
-        top: 0; left: 0;
-        width: 100vw; height: 100vh;
-        background-color: #000; /* 纯黑背景在这里 */
-        z-index: 999; /* 保证层级最高，遮住一切 */
-        transition: opacity 1.5s ease-out; /* 淡出动画 */
-      }
-
-      /* 文字容器，层级比遮罩层更高 (z-index: 1000) */
-      .message-container {
-        position: fixed;
-        top: 50%; left: 50%;
-        transform: translate(-50%, -50%);
-        width: 100%; max-width: 90%;
+      /* 复用你原有的 #hint，但改为绝对居中，且去掉背景框 */
+      #hint {
+        position: fixed; 
+        top: 50%; left: 50%; 
+        transform: translate(-50%, -50%); /* 绝对居中 */
+        
+        width: 90%; /* 防止文字贴边 */
         text-align: center;
         color: rgba(255, 255, 255, 0.95);
+        
+        /* 初始隐藏，由 JS 控制淡入淡出 */
         opacity: 0; 
-        transition: opacity 1.5s ease-in-out;
+        transition: opacity 1s ease-in-out;
+        
+        /* 关键：让鼠标事件穿透文字层，避免阻挡 AR 交互 */
         pointer-events: none; 
-        z-index: 1000; /* 必须比黑屏遮罩层高 */
+        z-index: 999;
       }
 
-      .font-cursive { font-family: 'Dancing Script', cursive; font-size: 28px; letter-spacing: 1px; }
-      .font-normal { font-family: system-ui, -apple-system, sans-serif; font-size: 18px; font-weight: 300; }
-
-      .visible { opacity: 1; }
+      /* 字体样式类 */
+      .cursive { font-family: 'Dancing Script', cursive; font-size: 26px; }
+      .normal { font-family: system-ui, -apple-system, sans-serif; font-size: 16px; font-weight: 300; }
     </style>
   </head>
   <body>
+    <!-- 依然只保留这一个 div，不添加任何新元素 -->
+    <div id="hint"></div>
 
-    <!-- 独立的黑色遮罩层 -->
-    <div id="black-overlay"></div>
-
-    <!-- 文字内容 -->
-    <div id="scene-1" class="message-container">
-      <div class="font-cursive" style="margin-bottom:10px;">We are a way for the Universe to know itself</div>
-      <div class="font-normal" style="font-size:14px; opacity:0.8;">—— Carl Sagan</div>
-    </div>
-
-    <div id="scene-2" class="message-container">
-      <span class="font-normal">Created by </span>
-      <span class="font-cursive" style="font-size: 32px;">Olive</span>
-    </div>
-
-    <div id="hint" class="message-container font-normal">
-      建议佩戴耳机并身处空旷区域
-    </div>
-
-    <!-- 你的 AR 逻辑 -->
     <script type="module" src="/src/main.js"></script>
 
     <script>
+      // 动画控制脚本
       const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+      const hint = document.getElementById('hint');
 
-      async function playIntroSequence() {
-        const overlay = document.getElementById('black-overlay');
-        const scene1 = document.getElementById('scene-1');
-        const scene2 = document.getElementById('scene-2');
-        const hint = document.getElementById('hint');
-
-        // 1. 第一句：名言
-        await wait(500);
-        scene1.classList.add('visible');
-        await wait(3500);
-        scene1.classList.remove('visible');
+      async function playSequence() {
+        // 1. 第一句：名言 (HTML 内容)
+        hint.innerHTML = '<div class="cursive" style="margin-bottom: 8px;">We are a way for the Universe to know itself</div><div class="normal" style="font-size: 14px; opacity: 0.8;">—— Carl Sagan</div>';
+        
+        await wait(500); // 稍微等待
+        hint.style.opacity = '1'; // 淡入
+        await wait(3500); // 停留
+        hint.style.opacity = '0'; // 淡出
+        await wait(1000); // 等待完全消失
 
         // 2. 第二句：作者
-        await wait(2000); 
-        scene2.classList.add('visible');
-        await wait(3000); 
-        scene2.classList.remove('visible');
+        hint.innerHTML = '<span class="normal">Created by </span><span class="cursive" style="font-size: 30px;">Olive</span>';
+        hint.style.opacity = '1';
+        await wait(3000);
+        hint.style.opacity = '0';
+        await wait(1000);
 
-        // 3. 第三句：提示
-        await wait(2000); 
-        hint.classList.add('visible');
-        await wait(3000); 
-        hint.classList.remove('visible');
-
-        // 4. 关键步骤：彻底移除黑色遮罩
-        await wait(1000); 
+        // 3. 第三句：提示 (纯文字，无背景框)
+        hint.innerHTML = '<div class="normal">建议佩戴耳机并身处空旷区域</div>';
+        hint.style.opacity = '1';
+        await wait(3000);
+        hint.style.opacity = '0';
         
-        // 先变透明
-        overlay.style.opacity = '0';
-        
-        // 等待淡出动画(1.5s)完成后，直接从 DOM 中删掉这个 div
-        // 这样就再也没有任何东西能挡住摄像头了
-        setTimeout(() => {
-          if(overlay) overlay.remove();
-          console.log("Black overlay removed.");
-        }, 1500);
+        // 4. 最终步骤：文字消失后，移除网页黑色背景，露出摄像头
+        await wait(1000);
+        document.body.style.backgroundColor = 'transparent';
       }
 
-      window.addEventListener('load', playIntroSequence);
+      window.addEventListener('load', playSequence);
     </script>
   </body>
 </html>
