@@ -263,6 +263,69 @@ function getRandomStarColor() {
   return colors[Math.floor(Math.random() * colors.length)];
 }
 
+// ============ 门外环境星星（分布在门框周围更大范围，进门前可见）============
+function createAmbientStars(count) {
+  const positions = new Float32Array(count * 3);
+  const colors = new Float32Array(count * 3);
+  const phases = new Float32Array(count * 4);
+  for (let i = 0; i < count; i++) {
+    // 分布在门框周围更大的范围：左右8米，高度0-4米，前后6米（包括门前！）
+    positions[i*3] = (Math.random() - 0.5) * 8;
+    positions[i*3+1] = 0.2 + Math.random() * 3.8;
+    positions[i*3+2] = (Math.random() - 0.5) * 6;  // 修改：前后都有分布
+    
+    const c = getRandomStarColor();
+    const brightness = 0.8 + Math.random() * 0.2;
+    colors[i*3] = c[0] * brightness; 
+    colors[i*3+1] = c[1] * brightness; 
+    colors[i*3+2] = c[2] * brightness;
+    phases[i*4] = Math.random() * Math.PI * 2;
+    phases[i*4+1] = 0.5 + Math.random() * 2;
+    phases[i*4+2] = Math.random() * Math.PI * 2;
+    phases[i*4+3] = Math.random() * Math.PI * 2;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  const mat = new THREE.PointsMaterial({ 
+    map: starPngTexture,
+    size: 0.12,
+    vertexColors: true,
+    transparent: true, 
+    opacity: 0.9, 
+    depthWrite: false, 
+    blending: THREE.AdditiveBlending, 
+    sizeAttenuation: true 
+  });
+  const points = new THREE.Points(geo, mat);
+  points.frustumCulled = false;
+  return { points, positions: positions.slice(), colors: colors.slice(), phases };
+}
+
+// 更新门外环境星星（闪烁+浮动）
+function updateAmbientStars(data, time) {
+  if (!data) return;
+  const { points, positions, colors, phases } = data;
+  const pos = points.geometry.attributes.position.array;
+  const col = points.geometry.attributes.color.array;
+  const count = positions.length / 3;
+  for (let i = 0; i < count; i++) {
+    // 闪烁
+    const twinkle = 0.5 + 0.5 * Math.sin(time * phases[i*4+1] + phases[i*4]);
+    col[i*3] = Math.min(1, colors[i*3] * twinkle * 1.3);
+    col[i*3+1] = Math.min(1, colors[i*3+1] * twinkle * 1.3);
+    col[i*3+2] = Math.min(1, colors[i*3+2] * twinkle * 1.3);
+    
+    // 轻微浮动
+    const drift = 0.15;
+    pos[i*3] = positions[i*3] + Math.sin(time * 0.15 + phases[i*4+2]) * drift;
+    pos[i*3+1] = positions[i*3+1] + Math.sin(time * 0.12 + phases[i*4]) * drift * 0.5;
+    pos[i*3+2] = positions[i*3+2] + Math.cos(time * 0.18 + phases[i*4+3]) * drift;
+  }
+  points.geometry.attributes.position.needsUpdate = true;
+  points.geometry.attributes.color.needsUpdate = true;
+}
+
 // ============ 背景星星（使用 star.png，多彩闪烁）============
 function createStars(count, radius, baseSize) {
   const positions = new Float32Array(count * 3);
@@ -286,7 +349,7 @@ function createStars(count, radius, baseSize) {
   geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   const mat = new THREE.PointsMaterial({ 
-    map: starPngTexture,  // 使用 star.png
+    map: starPngTexture,
     size: baseSize, 
     vertexColors: true,
     transparent: true, 
@@ -321,7 +384,7 @@ function createFloatingStars(count, minR, maxR, baseSize) {
   geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   const mat = new THREE.PointsMaterial({ 
-    map: starPngTexture,  // 使用 star.png
+    map: starPngTexture,
     size: baseSize, 
     vertexColors: true,
     transparent: true, 
@@ -354,46 +417,10 @@ function createBrightStars(count, radius) {
   geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   const mat = new THREE.PointsMaterial({ 
-    map: starPngTexture,  // 使用 star.png
+    map: starPngTexture,
     size: 1.0, 
     vertexColors: true,
     transparent: true, 
-    depthWrite: false, 
-    blending: THREE.AdditiveBlending, 
-    sizeAttenuation: true 
-  });
-  const points = new THREE.Points(geo, mat);
-  points.frustumCulled = false;
-  return { points, positions: positions.slice(), colors: colors.slice(), phases };
-}
-
-function createAmbientStars(count) {
-  const positions = new Float32Array(count * 3);
-  const colors = new Float32Array(count * 3);
-  const phases = new Float32Array(count * 4);
-  for (let i = 0; i < count; i++) {
-    positions[i*3] = (Math.random() - 0.5) * 5;
-    positions[i*3+1] = 0.3 + Math.random() * 2.5;
-    positions[i*3+2] = -0.5 - Math.random() * 3;
-    const c = getRandomStarColor();
-    const brightness = 0.8 + Math.random() * 0.2;
-    colors[i*3] = c[0] * brightness; 
-    colors[i*3+1] = c[1] * brightness; 
-    colors[i*3+2] = c[2] * brightness;
-    phases[i*4] = Math.random() * Math.PI * 2;
-    phases[i*4+1] = 0.5 + Math.random() * 2;
-    phases[i*4+2] = Math.random() * Math.PI * 2;
-    phases[i*4+3] = Math.random() * Math.PI * 2;
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-  const mat = new THREE.PointsMaterial({ 
-    map: starPngTexture,  // 使用 star.png
-    size: 0.08, 
-    vertexColors: true,
-    transparent: true, 
-    opacity: 0.9, 
     depthWrite: false, 
     blending: THREE.AdditiveBlending, 
     sizeAttenuation: true 
@@ -471,8 +498,8 @@ function createSpaceStars(count) {
   geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   
   const mat = new THREE.PointsMaterial({
-    map: star01PngTexture,  // 使用 star_01.png
-    size: 0.15 * 0.85,      // 缩小 0.85 倍
+    map: star01PngTexture,
+    size: 0.15 * 0.85,
     color: 0xffffff,
     transparent: true,
     opacity: 0,
@@ -887,7 +914,7 @@ function createConstellation(data) {
   const starMeshes = [];
   data.stars.forEach((star) => {
     const starMat = new THREE.SpriteMaterial({ 
-      map: star01PngTexture,  // 使用 star_01.png
+      map: star01PngTexture,
       color: new THREE.Color(1, 0.98, 0.9), 
       transparent: true, 
       opacity: 0, 
@@ -896,7 +923,7 @@ function createConstellation(data) {
     });
     const sprite = new THREE.Sprite(starMat);
     sprite.position.set(star.x, star.y, star.z);
-    sprite.scale.setScalar(star.size * 0.85);  // 缩小 0.85 倍
+    sprite.scale.setScalar(star.size * 0.85);
     sprite.userData = { baseMat: starMat, baseSize: star.size * 0.85 };
     group.add(sprite);
     starMeshes.push(sprite);
@@ -1146,7 +1173,8 @@ function build() {
   nebulaPortal = createNebulaPortal();
   doorGroup.add(nebulaPortal);
 
-  ambientStarData = createAmbientStars(200);
+  // 门外环境星星（增加数量到400颗）
+  ambientStarData = createAmbientStars(400);
   ambientStars = ambientStarData.points;
   doorGroup.add(ambientStars);
 
@@ -1329,9 +1357,10 @@ function updateTransition(xrCam, delta) {
   easterEggs.forEach(egg => { egg.userData.spriteMat.opacity = smooth * 0.3; });
   updateConstellations(performance.now() / 1000, smooth);
   
+  // 门外星星：进门后淡出
   const previewOp = 1 - smooth;
   if (nebulaPortal) nebulaPortal.userData.nebulaMat.opacity = previewOp * 0.5;
-  if (ambientStars) ambientStars.material.opacity = previewOp * 0.8;
+  if (ambientStars) ambientStars.material.opacity = previewOp * 0.9;
   if (portalMask) portalMask.visible = smooth < 0.99;
 }
 
@@ -1440,7 +1469,7 @@ function render(_, frame) {
     updateMeteors(delta);
     updateCelestialBodies(time, delta);
     updateStars(starData, time);
-    updateStars(ambientStarData, time);
+    updateAmbientStars(ambientStarData, time);  // 更新门外星星闪烁
     updateFloatingStars(floatingStarData, time);
     updateBrightStars(brightStarData, time);
     updateSpaceStars(spaceStarData, time);
