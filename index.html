@@ -36,12 +36,17 @@
         font-size: 20px;
         color: #188f32;
       }
+      .highlight-norm{
+        font-family: 'Cinzel';
+        font-size: 16px;
+        color: #ffffff;
+      }
     </style>
   </head>
   <body>
     <div id="hint">
       <span class="highlight-text"> We are a way for the Universe to know itself.</span>  
-      <br> ——  Carl Sagan<br>
+      <br><span class="highlight-norm"> —— Carl Sagan</span><br>
     </div>
     <script type="module" src="/src/main.js"></script>
 
@@ -51,14 +56,14 @@
         hintEl.style.opacity = '0';
 
         setTimeout(() => {
-          hintEl.innerHTML = "Created by <span class='highlight-name'>Olive</span>";
+          hintEl.innerHTML = "<span class='highlight-norm'> Created by </span> <span class='highlight-name'>Olive</span>";
           hintEl.style.opacity = '1';
 
           setTimeout(() => {
             hintEl.style.opacity = '0';
 
             setTimeout(() => {
-              hintEl.innerHTML = "建议佩戴耳机并身处空旷区域";
+              hintEl.innerHTML = "<span class ='highlight-norm'>建议佩戴耳机并身处空旷区域</span>";
               hintEl.style.opacity = '1';
             },800);
           },5000);
