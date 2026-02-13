@@ -532,7 +532,7 @@ function createWishMessage() {
   const ctx = canvas.getContext("2d");
   
   // Cinzel 字体，24px，备选 Georgia
-  ctx.font = "500 24px Cinzel, Georgia, serif";
+  ctx.font = "500 20px Cinzel, Georgia, serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   
