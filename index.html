@@ -4,21 +4,32 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
     <title>For You</title>
+    
     <!-- 引入书写体字体 -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@600&display=swap" rel="stylesheet">
 
     <style>
+      /* 关键点1：HTML/Body 强制透明，绝不给底色 */
       html, body { 
         margin: 0; padding: 0; 
         overflow: hidden; 
-        background-color: #000; /* 初始黑色背景 */
+        background-color: transparent !important; /* 强制透明 */
         height: 100%; width: 100%;
-        transition: background-color 1.5s ease; /* 背景色平滑过渡 */
       }
 
-      /* 通用文字容器：居中、白色、初始透明 */
+      /* 关键点2：独立的黑色遮罩层 */
+      #black-overlay {
+        position: fixed;
+        top: 0; left: 0;
+        width: 100vw; height: 100vh;
+        background-color: #000; /* 纯黑背景在这里 */
+        z-index: 999; /* 保证层级最高，遮住一切 */
+        transition: opacity 1.5s ease-out; /* 淡出动画 */
+      }
+
+      /* 文字容器，层级比遮罩层更高 (z-index: 1000) */
       .message-container {
         position: fixed;
         top: 50%; left: 50%;
@@ -28,43 +39,44 @@
         color: rgba(255, 255, 255, 0.95);
         opacity: 0; 
         transition: opacity 1.5s ease-in-out;
-        pointer-events: none; /* 此时文字不阻挡任何交互 */
-        z-index: 100;
+        pointer-events: none; 
+        z-index: 1000; /* 必须比黑屏遮罩层高 */
       }
 
       .font-cursive { font-family: 'Dancing Script', cursive; font-size: 28px; letter-spacing: 1px; }
       .font-normal { font-family: system-ui, -apple-system, sans-serif; font-size: 18px; font-weight: 300; }
 
-      /* 控制显示的类 */
       .visible { opacity: 1; }
     </style>
   </head>
   <body>
 
-    <!-- 场景 1: 名言 -->
+    <!-- 独立的黑色遮罩层 -->
+    <div id="black-overlay"></div>
+
+    <!-- 文字内容 -->
     <div id="scene-1" class="message-container">
       <div class="font-cursive" style="margin-bottom:10px;">We are a way for the Universe to know itself</div>
       <div class="font-normal" style="font-size:14px; opacity:0.8;">—— Carl Sagan</div>
     </div>
 
-    <!-- 场景 2: 作者 -->
     <div id="scene-2" class="message-container">
       <span class="font-normal">Created by </span>
       <span class="font-cursive" style="font-size: 32px;">Olive</span>
     </div>
 
-    <!-- 场景 3: 提示 (无背景、无边框、纯文字) -->
     <div id="hint" class="message-container font-normal">
       建议佩戴耳机并身处空旷区域
     </div>
 
-    <!-- 引入你的 AR 主程序 -->
+    <!-- 你的 AR 逻辑 -->
     <script type="module" src="/src/main.js"></script>
 
     <script>
       const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
       async function playIntroSequence() {
+        const overlay = document.getElementById('black-overlay');
         const scene1 = document.getElementById('scene-1');
         const scene2 = document.getElementById('scene-2');
         const hint = document.getElementById('hint');
@@ -72,26 +84,33 @@
         // 1. 第一句：名言
         await wait(500);
         scene1.classList.add('visible');
-        await wait(3500); // 停留 3.5s
+        await wait(3500);
         scene1.classList.remove('visible');
-        
+
         // 2. 第二句：作者
-        await wait(1500 + 500); // 等待淡出
+        await wait(2000); 
         scene2.classList.add('visible');
-        await wait(3000); // 停留 3s
+        await wait(3000); 
         scene2.classList.remove('visible');
 
-        // 3. 第三句：提示 (纯文字)
-        await wait(1500 + 500);
+        // 3. 第三句：提示
+        await wait(2000); 
         hint.classList.add('visible');
-        await wait(3000); // 停留 3s
-        hint.classList.remove('visible'); // 提示文字消失
+        await wait(3000); 
+        hint.classList.remove('visible');
 
-        // 4. 关键步骤：文字全部消失后，移除黑色背景，露出摄像头
-        await wait(1500);
-        document.body.style.backgroundColor = 'transparent';
+        // 4. 关键步骤：彻底移除黑色遮罩
+        await wait(1000); 
         
-        console.log("Intro finished. Background is transparent now.");
+        // 先变透明
+        overlay.style.opacity = '0';
+        
+        // 等待淡出动画(1.5s)完成后，直接从 DOM 中删掉这个 div
+        // 这样就再也没有任何东西能挡住摄像头了
+        setTimeout(() => {
+          if(overlay) overlay.remove();
+          console.log("Black overlay removed.");
+        }, 1500);
       }
 
       window.addEventListener('load', playIntroSequence);
