@@ -539,7 +539,7 @@ function createWishMessage() {
   const ctx = canvas.getContext("2d");
   
   // 星光字体效果
-  ctx.font = "bold 56px Georgia, 'Times New Roman', serif";
+  ctx.font = "500 26px Cinzel, serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   
