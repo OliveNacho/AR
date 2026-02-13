@@ -52,6 +52,15 @@
         setTimeout(() => {
           hintEl.innerHTML = "Created by <span class='highlight-name'>Olive</span>";
           hintEl.style.opacity = '1';
+
+          setTimeout(() => {
+            hintEl.style.opacity = '0';
+
+            setTimeout(() => {
+              hintEl.innerHTML = "建议佩戴耳机并身处空旷区域";
+              hintEl.style.opacity = '1';
+            },800);
+          },5000);
         },800);
       },5000);
     </script>
