@@ -4,19 +4,121 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
     <title>For You</title>
+    <!-- 引入书写体字体 (Dancing Script) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@600&display=swap" rel="stylesheet">
+
     <style>
-      html, body { margin: 0; padding: 0; overflow: hidden; background: #000; }
-      #hint {
-        position: fixed; left: 50%; bottom: 600px; transform: translateX(-50%);
-        color: rgba(255,255,255,.92); font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto;
-        padding: 10px 12px; border-radius: 12px;
-        background: rgba(0,0,0,.35); backdrop-filter: blur(8px);
-        max-width: min(92vw, 520px); text-align: center;
+      html, body { 
+        margin: 0; padding: 0; 
+        overflow: hidden; 
+        background: #000; 
+        height: 100%; width: 100%;
       }
+
+      /* 通用文字容器样式：绝对定位居中，初始不可见 */
+      .message-container {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 100%;
+        max-width: 80%;
+        text-align: center;
+        color: rgba(255, 255, 255, 0.95);
+        opacity: 0; /* 初始完全透明 */
+        transition: opacity 1.5s ease-in-out; /* 渐变过渡时间 */
+        pointer-events: none; /* 避免遮挡后续交互 */
+        z-index: 100;
+      }
+
+      /* 字体样式工具类 */
+      .font-cursive {
+        font-family: 'Dancing Script', cursive;
+        font-size: 28px; /* 书写体稍微大一点更易读 */
+        letter-spacing: 1px;
+      }
+
+      .font-normal {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+        font-size: 18px;
+        font-weight: 300;
+      }
+
+      /* 针对名言的布局微调 */
+      .quote-content { margin-bottom: 10px; display: block; }
+      .quote-source { font-size: 14px; opacity: 0.8; }
+
+      /* 最终提示框样式 (基于你原来的样式修改为居中) */
+      #hint {
+        /* 如果希望最终提示框有背景色，保留 background 等属性，如果只想显示文字，可以去掉 */
+        background: rgba(0,0,0,.35); 
+        backdrop-filter: blur(8px);
+        padding: 12px 20px; 
+        border-radius: 12px;
+        font-size: 16px;
+        line-height: 1.5;
+      }
+
+      /* 控制显示的类 */
+      .visible { opacity: 1; }
     </style>
   </head>
   <body>
-    <div id="hint">建议佩戴耳机并处空旷区域</div>
+
+    <!-- 场景 1: Carl Sagan 名言 -->
+    <div id="scene-1" class="message-container">
+      <div class="font-cursive quote-content">We are a way for the Universe to know itself</div>
+      <div class="font-normal quote-source">—— Carl Sagan</div>
+    </div>
+
+    <!-- 场景 2: Created by Olive -->
+    <div id="scene-2" class="message-container">
+      <span class="font-normal">Created by </span>
+      <span class="font-cursive" style="font-size: 32px;">Olive</span>
+    </div>
+
+    <!-- 场景 3: 最终提示 -->
+    <div id="hint" class="message-container font-normal">
+      建议佩戴耳机并身处空旷区域
+    </div>
+
     <script type="module" src="/src/main.js"></script>
+
+    <!-- 动画逻辑脚本 -->
+    <script>
+      // 辅助函数：延迟执行
+      const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+      async function playIntroSequence() {
+        const scene1 = document.getElementById('scene-1');
+        const scene2 = document.getElementById('scene-2');
+        const hint = document.getElementById('hint');
+
+        // 1. 等待 500ms 后显示第一句话
+        await wait(500);
+        scene1.classList.add('visible');
+
+        // 2. 显示 3.5秒 后，隐藏第一句话
+        await wait(3500);
+        scene1.classList.remove('visible');
+
+        // 3. 等待淡出完成 (1.5s) 后，再过 500ms 显示第二句话
+        await wait(1500 + 500);
+        scene2.classList.add('visible');
+
+        // 4. 显示 3秒 后，隐藏第二句话
+        await wait(3000);
+        scene2.classList.remove('visible');
+
+        // 5. 等待淡出完成 (1.5s) 后，显示最终提示
+        await wait(1500 + 500);
+        hint.classList.add('visible');
+      }
+
+      // 页面加载完成后开始播放
+      window.addEventListener('load', playIntroSequence);
+    </script>
   </body>
 </html>
