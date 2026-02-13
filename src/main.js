@@ -20,8 +20,8 @@ let skySphere = null;
 let skyStars = null;
 let floatingStars = null;
 let brightStars = null;
-let nearbyStars = null;       // ★ 新增：近身星星
-let nearbyStarData = null;    // ★ 新增
+let nearbyStars = null;
+let nearbyStarData = null;
 let moonMesh = null;
 let jupiterMesh = null;
 let marsMesh = null;
@@ -68,6 +68,12 @@ let starTexture = null;
 let starPngTexture = null;
 let star01PngTexture = null;
 let nebulaTexture = null;
+
+// ★★★ 彩蛋相关 ★★★
+let wishMessage = null;
+let wishParticles = [];
+let lastWishTriggerTime = 0;
+const WISH_COOLDOWN = 8000; // 冷却时间8秒，避免频繁触发
 
 // ============ 初始化 ============
 init();
@@ -245,7 +251,7 @@ function createSaturnRingTexture() {
   return tex;
 }
 
-// ============ 星星颜色（金/白/蓝）============
+// ============ 星星颜色 ============
 function getRandomStarColor() {
   const colors = [
     [1, 1, 1], [0.6, 0.8, 1], [0.7, 0.85, 1], [1, 0.95, 0.7],
@@ -309,7 +315,7 @@ function createStars(count, radius, baseSize) {
   return { points, positions: positions.slice(), colors: colors.slice(), phases };
 }
 
-// ============ 浮动星星（中距离）============
+// ============ 浮动星星 ============
 function createFloatingStars(count, minR, maxR, baseSize) {
   const positions = new Float32Array(count * 3);
   const colors = new Float32Array(count * 3);
@@ -366,109 +372,68 @@ function createBrightStars(count, radius) {
   return { points, positions: positions.slice(), colors: colors.slice(), phases };
 }
 
-// ============ ★★★ 近身星星（围绕用户）★★★ ============
+// ============ 近身星星 ============
 function createNearbyStars(count) {
   const positions = new Float32Array(count * 3);
   const colors = new Float32Array(count * 3);
   const sizes = new Float32Array(count);
   const phases = new Float32Array(count * 5);
-  
   for (let i = 0; i < count; i++) {
-    // 球形分布，距离 2-12 米
     const theta = Math.random() * Math.PI * 2;
     const phi = Math.acos(2 * Math.random() - 1);
     const r = 2 + Math.random() * 10;
-    
-    // 相对于用户的偏移（初始值，后续会加上用户位置）
     positions[i*3] = r * Math.sin(phi) * Math.cos(theta);
-    positions[i*3+1] = r * Math.cos(phi) * 0.6 + (Math.random() - 0.3) * 4; // 稍微压缩垂直分布，偏上方
+    positions[i*3+1] = r * Math.cos(phi) * 0.6 + (Math.random() - 0.3) * 4;
     positions[i*3+2] = r * Math.sin(phi) * Math.sin(theta);
-    
     const c = getRandomStarColor();
     const brightness = 0.8 + Math.random() * 0.2;
     colors[i*3] = c[0] * brightness;
     colors[i*3+1] = c[1] * brightness;
     colors[i*3+2] = c[2] * brightness;
-    
-    // 大小变化：近处大，远处小
     sizes[i] = 0.08 + Math.random() * 0.15;
-    
-    // 相位：用于闪烁、浮动
-    phases[i*5] = Math.random() * Math.PI * 2;     // 闪烁相位
-    phases[i*5+1] = 0.3 + Math.random() * 2.0;     // 闪烁速度
-    phases[i*5+2] = Math.random() * Math.PI * 2;   // X浮动相位
-    phases[i*5+3] = Math.random() * Math.PI * 2;   // Y浮动相位
-    phases[i*5+4] = Math.random() * Math.PI * 2;   // Z浮动相位
+    phases[i*5] = Math.random() * Math.PI * 2;
+    phases[i*5+1] = 0.3 + Math.random() * 2.0;
+    phases[i*5+2] = Math.random() * Math.PI * 2;
+    phases[i*5+3] = Math.random() * Math.PI * 2;
+    phases[i*5+4] = Math.random() * Math.PI * 2;
   }
-  
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   geo.setAttribute("size", new THREE.BufferAttribute(sizes, 1));
-  
-  const mat = new THREE.PointsMaterial({
-    map: starPngTexture,
-    size: 0.15,
-    vertexColors: true,
-    transparent: true,
-    opacity: 0,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-    sizeAttenuation: true
-  });
-  
+  const mat = new THREE.PointsMaterial({ map: starPngTexture, size: 0.15, vertexColors: true, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true });
   const points = new THREE.Points(geo, mat);
   points.frustumCulled = false;
-  points.renderOrder = 20; // 高渲染顺序，确保在前面
-  
-  return {
-    points,
-    baseOffsets: positions.slice(), // 相对于用户的基础偏移
-    colors: colors.slice(),
-    sizes: sizes.slice(),
-    phases,
-    count
-  };
+  points.renderOrder = 20;
+  return { points, baseOffsets: positions.slice(), colors: colors.slice(), sizes: sizes.slice(), phases, count };
 }
 
-// ============ ★★★ 更新近身星星（跟随用户 + 闪烁 + 浮动）★★★ ============
 function updateNearbyStars(data, time, camPos) {
   if (!data) return;
-  
   const { points, baseOffsets, colors, phases, count } = data;
   const pos = points.geometry.attributes.position.array;
   const col = points.geometry.attributes.color.array;
-  
   for (let i = 0; i < count; i++) {
-    // 闪烁效果（强烈）
     const twinkle = 0.3 + 0.7 * Math.sin(time * phases[i*5+1] + phases[i*5]);
     col[i*3] = Math.min(1, colors[i*3] * twinkle * 1.5);
     col[i*3+1] = Math.min(1, colors[i*3+1] * twinkle * 1.5);
     col[i*3+2] = Math.min(1, colors[i*3+2] * twinkle * 1.5);
-    
-    // 浮动漂移
     const driftX = Math.sin(time * 0.15 + phases[i*5+2]) * 0.3;
     const driftY = Math.sin(time * 0.12 + phases[i*5+3]) * 0.2;
     const driftZ = Math.cos(time * 0.18 + phases[i*5+4]) * 0.3;
-    
-    // 缓慢旋转整体（围绕用户转动）
     const rotAngle = time * 0.02;
     const baseX = baseOffsets[i*3];
     const baseZ = baseOffsets[i*3+2];
     const rotX = baseX * Math.cos(rotAngle) - baseZ * Math.sin(rotAngle);
     const rotZ = baseX * Math.sin(rotAngle) + baseZ * Math.cos(rotAngle);
-    
-    // 最终位置 = 用户位置 + 旋转后的偏移 + 漂移
     pos[i*3] = camPos.x + rotX + driftX;
     pos[i*3+1] = camPos.y + baseOffsets[i*3+1] + driftY;
     pos[i*3+2] = camPos.z + rotZ + driftZ;
   }
-  
   points.geometry.attributes.position.needsUpdate = true;
   points.geometry.attributes.color.needsUpdate = true;
 }
 
-// ============ 更新天空星星 ============
 function updateStars(data, time) {
   if (!data) return;
   const { points, colors, phases } = data;
@@ -483,7 +448,6 @@ function updateStars(data, time) {
   points.geometry.attributes.color.needsUpdate = true;
 }
 
-// ============ 更新浮动星星 ============
 function updateFloatingStars(data, time) {
   if (!data) return;
   const { points, positions, colors, phases } = data;
@@ -504,7 +468,6 @@ function updateFloatingStars(data, time) {
   points.geometry.attributes.color.needsUpdate = true;
 }
 
-// ============ 更新明亮星星 ============
 function updateBrightStars(data, time) {
   if (!data) return;
   const { points, positions, colors, phases } = data;
@@ -525,7 +488,7 @@ function updateBrightStars(data, time) {
   points.geometry.attributes.color.needsUpdate = true;
 }
 
-// ============ 空间星星（增加空间感）============
+// ============ 空间星星 ============
 function createSpaceStars(count) {
   const positions = new Float32Array(count * 3);
   const phases = new Float32Array(count * 4);
@@ -566,6 +529,235 @@ function updateSpaceStars(data, time) {
     pos[i*3+2] = worldPos.z;
   }
   points.geometry.attributes.position.needsUpdate = true;
+}
+
+// ============ ★★★ 祝福彩蛋系统 ★★★ ============
+function createWishMessage() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1024;
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d");
+  
+  // 星光字体效果
+  ctx.font = "bold 56px Georgia, 'Times New Roman', serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  
+  // 多层光晕
+  ctx.shadowColor = "rgba(200, 220, 255, 1)";
+  ctx.shadowBlur = 30;
+  ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
+  ctx.fillText("Shine Like The Stars.", 512, 64);
+  
+  ctx.shadowBlur = 20;
+  ctx.fillStyle = "rgba(230, 240, 255, 0.6)";
+  ctx.fillText("Shine Like The Stars.", 512, 64);
+  
+  ctx.shadowBlur = 10;
+  ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+  ctx.fillText("Shine Like The Stars.", 512, 64);
+  
+  ctx.shadowBlur = 5;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText("Shine Like The Stars.", 512, 64);
+  
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  
+  const mat = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    opacity: 0,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(4, 0.5, 1);
+  sprite.renderOrder = 100;
+  
+  return {
+    sprite,
+    mat,
+    state: 'hidden', // hidden, fadeIn, showing, scattering, done
+    time: 0,
+    basePosition: new THREE.Vector3(),
+  };
+}
+
+function triggerWishMessage() {
+  const now = performance.now();
+  
+  // 冷却检查
+  if (now - lastWishTriggerTime < WISH_COOLDOWN) return;
+  // 已经在显示中
+  if (wishMessage && wishMessage.state !== 'hidden' && wishMessage.state !== 'done') return;
+  
+  lastWishTriggerTime = now;
+  
+  // 创建新消息（如果不存在）
+  if (!wishMessage) {
+    wishMessage = createWishMessage();
+    scene.add(wishMessage.sprite);
+  }
+  
+  // 设置位置：门框中心
+  const msgPos = doorPlanePoint.clone();
+  msgPos.y += DOOR_HEIGHT * 0.5;
+  wishMessage.basePosition.copy(msgPos);
+  wishMessage.sprite.position.copy(msgPos);
+  
+  // 开始淡入
+  wishMessage.state = 'fadeIn';
+  wishMessage.time = 0;
+  wishMessage.mat.opacity = 0;
+  wishMessage.sprite.visible = true;
+}
+
+function createWishParticle(position) {
+  const c = getRandomStarColor();
+  const mat = new THREE.SpriteMaterial({
+    map: starPngTexture,
+    color: new THREE.Color(c[0], c[1], c[2]),
+    transparent: true,
+    opacity: 1,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  
+  const sprite = new THREE.Sprite(mat);
+  sprite.position.copy(position);
+  sprite.scale.setScalar(0.08 + Math.random() * 0.1);
+  sprite.renderOrder = 101;
+  scene.add(sprite);
+  
+  // 随机方向飘散
+  const angle = Math.random() * Math.PI * 2;
+  const upAngle = (Math.random() - 0.3) * Math.PI * 0.5;
+  const speed = 0.8 + Math.random() * 1.2;
+  
+  return {
+    sprite,
+    mat,
+    velocity: new THREE.Vector3(
+      Math.cos(angle) * Math.cos(upAngle) * speed,
+      Math.sin(upAngle) * speed + 0.5,
+      Math.sin(angle) * Math.cos(upAngle) * speed
+    ),
+    life: 0,
+    maxLife: 2 + Math.random() * 1.5,
+    twinklePhase: Math.random() * Math.PI * 2,
+    twinkleSpeed: 2 + Math.random() * 3,
+  };
+}
+
+function scatterWishIntoStars() {
+  if (!wishMessage) return;
+  
+  // 在文字区域生成粒子
+  const basePos = wishMessage.sprite.position.clone();
+  const particleCount = 60;
+  
+  for (let i = 0; i < particleCount; i++) {
+    const offset = new THREE.Vector3(
+      (Math.random() - 0.5) * 3.5,
+      (Math.random() - 0.5) * 0.4,
+      (Math.random() - 0.5) * 0.2
+    );
+    const particlePos = basePos.clone().add(offset);
+    wishParticles.push(createWishParticle(particlePos));
+  }
+  
+  wishMessage.state = 'scattering';
+  wishMessage.time = 0;
+}
+
+function updateWishMessage(delta) {
+  // 更新粒子
+  for (let i = wishParticles.length - 1; i >= 0; i--) {
+    const p = wishParticles[i];
+    p.life += delta;
+    
+    // 移动
+    p.sprite.position.add(p.velocity.clone().multiplyScalar(delta));
+    
+    // 减速
+    p.velocity.multiplyScalar(0.98);
+    p.velocity.y -= delta * 0.1; // 轻微重力
+    
+    // 闪烁
+    const twinkle = 0.5 + 0.5 * Math.sin(p.life * p.twinkleSpeed + p.twinklePhase);
+    
+    // 淡出
+    const lifeRatio = p.life / p.maxLife;
+    p.mat.opacity = (1 - lifeRatio) * twinkle;
+    
+    // 缩小
+    const scale = (0.08 + Math.random() * 0.05) * (1 - lifeRatio * 0.5);
+    p.sprite.scale.setScalar(scale);
+    
+    if (p.life >= p.maxLife) {
+      scene.remove(p.sprite);
+      wishParticles.splice(i, 1);
+    }
+  }
+  
+  // 更新文字状态
+  if (!wishMessage || wishMessage.state === 'hidden' || wishMessage.state === 'done') return;
+  
+  wishMessage.time += delta;
+  
+  // 让文字始终面向用户（已经是 Sprite，自动面向相机）
+  // 更新位置跟随门框
+  const msgPos = doorPlanePoint.clone();
+  msgPos.y += DOOR_HEIGHT * 0.5;
+  wishMessage.sprite.position.copy(msgPos);
+  
+  switch (wishMessage.state) {
+    case 'fadeIn':
+      wishMessage.mat.opacity = Math.min(1, wishMessage.time * 0.8);
+      if (wishMessage.time > 1.5) {
+        wishMessage.state = 'showing';
+        wishMessage.time = 0;
+      }
+      break;
+      
+    case 'showing':
+      // 轻微脉动
+      wishMessage.mat.opacity = 0.85 + 0.15 * Math.sin(wishMessage.time * 2);
+      if (wishMessage.time > 2.5) {
+        scatterWishIntoStars();
+      }
+      break;
+      
+    case 'scattering':
+      // 文字淡出
+      wishMessage.mat.opacity = Math.max(0, 1 - wishMessage.time * 1.5);
+      if (wishMessage.time > 1) {
+        wishMessage.state = 'done';
+        wishMessage.sprite.visible = false;
+      }
+      break;
+  }
+}
+
+function checkWishTrigger(camPos) {
+  if (!placed || !isInside) return;
+  
+  // 计算到门平面的距离
+  const toDoor = camPos.clone().sub(doorPlanePoint);
+  const distToPlane = Math.abs(doorPlaneNormal.dot(toDoor));
+  
+  // 检查是否在门框附近（横向范围内）
+  const rightDist = Math.abs(doorRight.dot(toDoor));
+  const upDist = toDoor.y - doorPlanePoint.y;
+  
+  // 触发条件：在门内，距离门平面2米内，在门框宽度范围内
+  const nearDoor = distToPlane < 2 && rightDist < 1.5 && upDist > -0.5 && upDist < DOOR_HEIGHT + 0.5;
+  
+  if (nearDoor) {
+    triggerWishMessage();
+  }
 }
 
 // ============ 流星系统 ============
@@ -959,31 +1151,26 @@ function build() {
   skySphere.renderOrder = 1;
   scene.add(skySphere);
 
-  // 背景星星
-  starData = createStars(18000, SKY_RADIUS * 0.95, 0.35);
+  starData = createStars(8000, SKY_RADIUS * 0.95, 0.35);
   skyStars = starData.points;
   skyStars.renderOrder = 2;
   scene.add(skyStars);
 
-  // 浮动星星
-  floatingStarData = createFloatingStars(8500, SKY_RADIUS * 0.08, SKY_RADIUS * 0.5, 0.3);
+  floatingStarData = createFloatingStars(2500, SKY_RADIUS * 0.08, SKY_RADIUS * 0.5, 0.3);
   floatingStars = floatingStarData.points;
   floatingStars.renderOrder = 3;
   scene.add(floatingStars);
 
-  // 明亮星星
-  brightStarData = createBrightStars(1500, SKY_RADIUS * 0.85);
+  brightStarData = createBrightStars(150, SKY_RADIUS * 0.85);
   brightStars = brightStarData.points;
   brightStars.renderOrder = 4;
   scene.add(brightStars);
 
-  // ★★★ 近身星星（围绕用户，数量多）★★★
-  nearbyStarData = createNearbyStars(3500);
+  nearbyStarData = createNearbyStars(500);
   nearbyStars = nearbyStarData.points;
   scene.add(nearbyStars);
 
-  // 空间星星
-  spaceStarData = createSpaceStars(3600);
+  spaceStarData = createSpaceStars(600);
   spaceStars = spaceStarData.points;
   spaceStars.renderOrder = 6;
   scene.add(spaceStars);
@@ -1037,7 +1224,7 @@ function build() {
   scene.add(sunGlowSprite);
 
   texLoader.load(`${BASE}textures/moon.jpg`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; moonMesh.material.map = tex; moonMesh.material.color.set(0xffffff); moonMesh.material.needsUpdate = true; });
-  texLoader.load(`${BASE}textures/earth.jpg`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; jupiterMesh.material.map = tex; jupiterMesh.material.color.set(0xffffff); jupiterMesh.material.needsUpdate = true; });
+  texLoader.load(`${BASE}textures/jupiter.jpg`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; jupiterMesh.material.map = tex; jupiterMesh.material.color.set(0xffffff); jupiterMesh.material.needsUpdate = true; });
   texLoader.load(`${BASE}textures/mars.jpg`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; marsMesh.material.map = tex; marsMesh.material.color.set(0xffffff); marsMesh.material.needsUpdate = true; });
   texLoader.load(`${BASE}textures/saturn.jpg`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; saturnMesh.material.map = tex; saturnMesh.material.color.set(0xffffff); saturnMesh.material.needsUpdate = true; });
   texLoader.load(`${BASE}textures/saturn_ring.png`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; saturnRingMesh.material.map = tex; saturnRingMesh.material.needsUpdate = true; });
@@ -1113,7 +1300,7 @@ function updateTransition(xrCam, delta) {
   if (skyStars) skyStars.material.opacity = smooth;
   if (floatingStars) floatingStars.material.opacity = smooth;
   if (brightStars) brightStars.material.opacity = smooth;
-  if (nearbyStars) nearbyStars.material.opacity = smooth;  // ★ 近身星星
+  if (nearbyStars) nearbyStars.material.opacity = smooth;
   if (spaceStars) spaceStars.material.opacity = smooth;
   if (moonMesh) moonMesh.material.opacity = smooth;
   if (jupiterMesh) jupiterMesh.material.opacity = smooth;
@@ -1224,15 +1411,17 @@ function render(_, frame) {
     updateMeteors(delta);
     updateCelestialBodies(time, delta);
     
-    // 更新所有星星
     updateStars(starData, time);
     updateFloatingStars(floatingStarData, time);
     updateBrightStars(brightStarData, time);
     updateSpaceStars(spaceStarData, time);
     
-    // ★★★ 更新近身星星（传入用户位置）★★★
     xrCam.getWorldPosition(_camPos);
     updateNearbyStars(nearbyStarData, time, _camPos);
+    
+    // ★★★ 检查彩蛋触发 ★★★
+    checkWishTrigger(_camPos);
+    updateWishMessage(delta);
     
     updateConstellationLabels(delta);
     checkConstellationDiscovery();
@@ -1250,6 +1439,16 @@ function render(_, frame) {
 function reset() {
   placed = false; isInside = false; transitionValue = 0; placedTime = 0; meteorShowerTriggered = false;
   constellationStates.clear();
+  lastWishTriggerTime = 0;
+  
+  // 清理祝福消息
+  if (wishMessage) {
+    scene.remove(wishMessage.sprite);
+    wishMessage = null;
+  }
+  wishParticles.forEach(p => scene.remove(p.sprite));
+  wishParticles = [];
+  
   if (bgAudio) { bgAudio.pause(); bgAudio.currentTime = 0; audioStarted = false; }
   meteors.forEach(m => { scene.remove(m); if (m.userData.trailSprites) m.userData.trailSprites.forEach(ts => scene.remove(ts.sprite)); });
   meteors = [];
@@ -1260,7 +1459,7 @@ function reset() {
   if (skyStars) { scene.remove(skyStars); skyStars = null; }
   if (floatingStars) { scene.remove(floatingStars); floatingStars = null; }
   if (brightStars) { scene.remove(brightStars); brightStars = null; }
-  if (nearbyStars) { scene.remove(nearbyStars); nearbyStars = null; }  // ★ 清理近身星星
+  if (nearbyStars) { scene.remove(nearbyStars); nearbyStars = null; }
   if (spaceStars) { scene.remove(spaceStars); spaceStars = null; }
   if (moonMesh) { scene.remove(moonMesh); moonMesh = null; }
   if (jupiterMesh) { scene.remove(jupiterMesh); jupiterMesh = null; }
