@@ -960,30 +960,30 @@ function build() {
   scene.add(skySphere);
 
   // 背景星星
-  starData = createStars(8000, SKY_RADIUS * 0.95, 0.35);
+  starData = createStars(18000, SKY_RADIUS * 0.95, 0.35);
   skyStars = starData.points;
   skyStars.renderOrder = 2;
   scene.add(skyStars);
 
   // 浮动星星
-  floatingStarData = createFloatingStars(2500, SKY_RADIUS * 0.08, SKY_RADIUS * 0.5, 0.3);
+  floatingStarData = createFloatingStars(8500, SKY_RADIUS * 0.08, SKY_RADIUS * 0.5, 0.3);
   floatingStars = floatingStarData.points;
   floatingStars.renderOrder = 3;
   scene.add(floatingStars);
 
   // 明亮星星
-  brightStarData = createBrightStars(150, SKY_RADIUS * 0.85);
+  brightStarData = createBrightStars(1500, SKY_RADIUS * 0.85);
   brightStars = brightStarData.points;
   brightStars.renderOrder = 4;
   scene.add(brightStars);
 
   // ★★★ 近身星星（围绕用户，数量多）★★★
-  nearbyStarData = createNearbyStars(500);
+  nearbyStarData = createNearbyStars(3500);
   nearbyStars = nearbyStarData.points;
   scene.add(nearbyStars);
 
   // 空间星星
-  spaceStarData = createSpaceStars(600);
+  spaceStarData = createSpaceStars(3600);
   spaceStars = spaceStarData.points;
   spaceStars.renderOrder = 6;
   scene.add(spaceStars);
