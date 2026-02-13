@@ -62,8 +62,10 @@ let meteors = [];
 let touchPoints = [];
 let isTouching = false;
 
-let starTexture = null;
-let starPngTexture = null;
+// 纹理
+let starTexture = null;      // 程序生成（用于流星尾迹等）
+let starPngTexture = null;   // star.png（用于背景星星）
+let star01PngTexture = null; // star_01.png（用于空间星星和星座）
 let nebulaTexture = null;
 
 // ============ 初始化 ============
@@ -87,10 +89,15 @@ function init() {
   nebulaTexture = texLoader.load(`${BASE}textures/nebula.png`);
   nebulaTexture.colorSpace = THREE.SRGBColorSpace;
   
-  // 加载用户提供的星星PNG
-  starPngTexture = texLoader.load(`${BASE}textures/star_01.png`);
+  // 加载背景星星纹理 star.png
+  starPngTexture = texLoader.load(`${BASE}textures/star.png`);
   starPngTexture.colorSpace = THREE.SRGBColorSpace;
   
+  // 加载空间星星/星座纹理 star_01.png
+  star01PngTexture = texLoader.load(`${BASE}textures/star_01.png`);
+  star01PngTexture.colorSpace = THREE.SRGBColorSpace;
+  
+  // 程序生成纹理（用于流星等）
   starTexture = createStarTexture();
 
   reticle = new THREE.Mesh(
@@ -250,7 +257,201 @@ function createSaturnRingTexture() {
   return tex;
 }
 
-// ============ 空间星星系统（使用PNG纹理）============
+// ============ 星星颜色 ============
+function getRandomStarColor() {
+  const colors = [[1, 1, 1], [0.7, 0.85, 1], [1, 0.9, 0.5], [0.9, 0.95, 1], [1, 0.95, 0.6], [0.85, 0.9, 1]];
+  return colors[Math.floor(Math.random() * colors.length)];
+}
+
+// ============ 背景星星（使用 star.png，多彩闪烁）============
+function createStars(count, radius, baseSize) {
+  const positions = new Float32Array(count * 3);
+  const colors = new Float32Array(count * 3);
+  const phases = new Float32Array(count * 4);
+  for (let i = 0; i < count; i++) {
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    const r = radius * (0.75 + 0.25 * Math.random());
+    positions[i*3] = r * Math.sin(phi) * Math.cos(theta);
+    positions[i*3+1] = r * Math.cos(phi);
+    positions[i*3+2] = r * Math.sin(phi) * Math.sin(theta);
+    const c = getRandomStarColor();
+    colors[i*3] = c[0]; colors[i*3+1] = c[1]; colors[i*3+2] = c[2];
+    phases[i*4] = Math.random() * Math.PI * 2;
+    phases[i*4+1] = 0.5 + Math.random() * 2;
+    phases[i*4+2] = Math.random() * Math.PI * 2;
+    phases[i*4+3] = Math.random() * Math.PI * 2;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  const mat = new THREE.PointsMaterial({ 
+    map: starPngTexture,  // 使用 star.png
+    size: baseSize, 
+    vertexColors: true,
+    transparent: true, 
+    depthWrite: false, 
+    blending: THREE.AdditiveBlending, 
+    sizeAttenuation: true 
+  });
+  const points = new THREE.Points(geo, mat);
+  points.frustumCulled = false;
+  return { points, positions: positions.slice(), colors: colors.slice(), phases };
+}
+
+function createFloatingStars(count, minR, maxR, baseSize) {
+  const positions = new Float32Array(count * 3);
+  const colors = new Float32Array(count * 3);
+  const phases = new Float32Array(count * 4);
+  for (let i = 0; i < count; i++) {
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    const r = minR + Math.random() * (maxR - minR);
+    positions[i*3] = r * Math.sin(phi) * Math.cos(theta);
+    positions[i*3+1] = r * Math.cos(phi);
+    positions[i*3+2] = r * Math.sin(phi) * Math.sin(theta);
+    const c = getRandomStarColor();
+    colors[i*3] = c[0]; colors[i*3+1] = c[1]; colors[i*3+2] = c[2];
+    phases[i*4] = Math.random() * Math.PI * 2;
+    phases[i*4+1] = 0.3 + Math.random() * 1.5;
+    phases[i*4+2] = Math.random() * Math.PI * 2;
+    phases[i*4+3] = Math.random() * Math.PI * 2;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  const mat = new THREE.PointsMaterial({ 
+    map: starPngTexture,  // 使用 star.png
+    size: baseSize, 
+    vertexColors: true,
+    transparent: true, 
+    depthWrite: false, 
+    blending: THREE.AdditiveBlending, 
+    sizeAttenuation: true 
+  });
+  const points = new THREE.Points(geo, mat);
+  points.frustumCulled = false;
+  return { points, positions: positions.slice(), colors: colors.slice(), phases };
+}
+
+function createBrightStars(count, radius) {
+  const positions = new Float32Array(count * 3);
+  const colors = new Float32Array(count * 3);
+  const phases = new Float32Array(count * 2);
+  for (let i = 0; i < count; i++) {
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    const r = radius * (0.6 + 0.4 * Math.random());
+    positions[i*3] = r * Math.sin(phi) * Math.cos(theta);
+    positions[i*3+1] = r * Math.cos(phi);
+    positions[i*3+2] = r * Math.sin(phi) * Math.sin(theta);
+    const c = getRandomStarColor();
+    colors[i*3] = c[0]; colors[i*3+1] = c[1]; colors[i*3+2] = c[2];
+    phases[i*2] = Math.random() * Math.PI * 2;
+    phases[i*2+1] = 0.2 + Math.random() * 0.6;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  const mat = new THREE.PointsMaterial({ 
+    map: starPngTexture,  // 使用 star.png
+    size: 1.0, 
+    vertexColors: true,
+    transparent: true, 
+    depthWrite: false, 
+    blending: THREE.AdditiveBlending, 
+    sizeAttenuation: true 
+  });
+  const points = new THREE.Points(geo, mat);
+  points.frustumCulled = false;
+  return { points, positions: positions.slice(), colors: colors.slice(), phases };
+}
+
+function createAmbientStars(count) {
+  const positions = new Float32Array(count * 3);
+  const colors = new Float32Array(count * 3);
+  const phases = new Float32Array(count * 4);
+  for (let i = 0; i < count; i++) {
+    positions[i*3] = (Math.random() - 0.5) * 5;
+    positions[i*3+1] = 0.3 + Math.random() * 2.5;
+    positions[i*3+2] = -0.5 - Math.random() * 3;
+    const c = getRandomStarColor();
+    const brightness = 0.8 + Math.random() * 0.2;
+    colors[i*3] = c[0] * brightness; 
+    colors[i*3+1] = c[1] * brightness; 
+    colors[i*3+2] = c[2] * brightness;
+    phases[i*4] = Math.random() * Math.PI * 2;
+    phases[i*4+1] = 0.5 + Math.random() * 2;
+    phases[i*4+2] = Math.random() * Math.PI * 2;
+    phases[i*4+3] = Math.random() * Math.PI * 2;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  const mat = new THREE.PointsMaterial({ 
+    map: starPngTexture,  // 使用 star.png
+    size: 0.08, 
+    vertexColors: true,
+    transparent: true, 
+    opacity: 0.9, 
+    depthWrite: false, 
+    blending: THREE.AdditiveBlending, 
+    sizeAttenuation: true 
+  });
+  const points = new THREE.Points(geo, mat);
+  points.frustumCulled = false;
+  return { points, positions: positions.slice(), colors: colors.slice(), phases };
+}
+
+function updateStars(data, time) {
+  if (!data) return;
+  const { points, colors, phases } = data;
+  const col = points.geometry.attributes.color.array;
+  const count = colors.length / 3;
+  for (let i = 0; i < count; i++) {
+    const twinkle = 0.7 + 0.3 * Math.sin(time * phases[i*4+1] + phases[i*4]);
+    col[i*3] = Math.min(1, colors[i*3] * twinkle * 1.2);
+    col[i*3+1] = Math.min(1, colors[i*3+1] * twinkle * 1.2);
+    col[i*3+2] = Math.min(1, colors[i*3+2] * twinkle * 1.2);
+  }
+  points.geometry.attributes.color.needsUpdate = true;
+}
+
+function updateFloatingStars(data, time) {
+  if (!data) return;
+  const { points, positions, colors, phases } = data;
+  const pos = points.geometry.attributes.position.array;
+  const col = points.geometry.attributes.color.array;
+  const count = positions.length / 3;
+  for (let i = 0; i < count; i++) {
+    const twinkle = 0.6 + 0.4 * Math.sin(time * phases[i*4+1] + phases[i*4]);
+    col[i*3] = Math.min(1, colors[i*3] * twinkle * 1.3);
+    col[i*3+1] = Math.min(1, colors[i*3+1] * twinkle * 1.3);
+    col[i*3+2] = Math.min(1, colors[i*3+2] * twinkle * 1.3);
+    const drift = 0.3;
+    pos[i*3] = positions[i*3] + Math.sin(time * 0.1 + phases[i*4+2]) * drift;
+    pos[i*3+1] = positions[i*3+1] + Math.sin(time * 0.08 + phases[i*4]) * drift * 0.3;
+    pos[i*3+2] = positions[i*3+2] + Math.cos(time * 0.12 + phases[i*4+3]) * drift;
+  }
+  points.geometry.attributes.position.needsUpdate = true;
+  points.geometry.attributes.color.needsUpdate = true;
+}
+
+function updateBrightStars(data, time) {
+  if (!data) return;
+  const { points, colors, phases } = data;
+  const col = points.geometry.attributes.color.array;
+  const count = colors.length / 3;
+  for (let i = 0; i < count; i++) {
+    const pulse = 0.7 + 0.3 * Math.sin(time * phases[i*2+1] + phases[i*2]);
+    col[i*3] = Math.min(1, colors[i*3] * pulse * 1.4);
+    col[i*3+1] = Math.min(1, colors[i*3+1] * pulse * 1.4);
+    col[i*3+2] = Math.min(1, colors[i*3+2] * pulse * 1.4);
+  }
+  points.geometry.attributes.color.needsUpdate = true;
+}
+
+// ============ 空间星星系统（使用 star_01.png，缩小 0.85 倍）============
 function createSpaceStars(count) {
   const positions = new Float32Array(count * 3);
   const phases = new Float32Array(count * 4);
@@ -269,10 +470,9 @@ function createSpaceStars(count) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   
-  // 使用用户的星星PNG，纯白色
   const mat = new THREE.PointsMaterial({
-    map: starPngTexture,
-    size: 0.2,
+    map: star01PngTexture,  // 使用 star_01.png
+    size: 0.15 * 0.85,      // 缩小 0.85 倍
     color: 0xffffff,
     transparent: true,
     opacity: 0,
@@ -492,343 +692,187 @@ function updateMeteors(delta) {
   }
 }
 
-// ============ 背景星星（使用PNG纹理）============
-function createStars(count, radius, baseSize) {
-  const positions = new Float32Array(count * 3);
-  const phases = new Float32Array(count * 4);
-  for (let i = 0; i < count; i++) {
-    const theta = Math.random() * Math.PI * 2;
-    const phi = Math.acos(2 * Math.random() - 1);
-    const r = radius * (0.75 + 0.25 * Math.random());
-    positions[i*3] = r * Math.sin(phi) * Math.cos(theta);
-    positions[i*3+1] = r * Math.cos(phi);
-    positions[i*3+2] = r * Math.sin(phi) * Math.sin(theta);
-    phases[i*4] = Math.random() * Math.PI * 2;
-    phases[i*4+1] = 0.5 + Math.random() * 2;
-    phases[i*4+2] = Math.random() * Math.PI * 2;
-    phases[i*4+3] = Math.random() * Math.PI * 2;
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  const mat = new THREE.PointsMaterial({ 
-    map: starPngTexture, 
-    size: baseSize, 
-    color: 0xffffff,
-    transparent: true, 
-    depthWrite: false, 
-    blending: THREE.AdditiveBlending, 
-    sizeAttenuation: true 
-  });
-  const points = new THREE.Points(geo, mat);
-  points.frustumCulled = false;
-  return { points, positions: positions.slice(), phases };
-}
-
-function createFloatingStars(count, minR, maxR, baseSize) {
-  const positions = new Float32Array(count * 3);
-  const phases = new Float32Array(count * 4);
-  for (let i = 0; i < count; i++) {
-    const theta = Math.random() * Math.PI * 2;
-    const phi = Math.acos(2 * Math.random() - 1);
-    const r = minR + Math.random() * (maxR - minR);
-    positions[i*3] = r * Math.sin(phi) * Math.cos(theta);
-    positions[i*3+1] = r * Math.cos(phi);
-    positions[i*3+2] = r * Math.sin(phi) * Math.sin(theta);
-    phases[i*4] = Math.random() * Math.PI * 2;
-    phases[i*4+1] = 0.3 + Math.random() * 1.5;
-    phases[i*4+2] = Math.random() * Math.PI * 2;
-    phases[i*4+3] = Math.random() * Math.PI * 2;
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  const mat = new THREE.PointsMaterial({ 
-    map: starPngTexture, 
-    size: baseSize, 
-    color: 0xffffff,
-    transparent: true, 
-    depthWrite: false, 
-    blending: THREE.AdditiveBlending, 
-    sizeAttenuation: true 
-  });
-  const points = new THREE.Points(geo, mat);
-  points.frustumCulled = false;
-  return { points, positions: positions.slice(), phases };
-}
-
-function createBrightStars(count, radius) {
-  const positions = new Float32Array(count * 3);
-  const phases = new Float32Array(count * 2);
-  for (let i = 0; i < count; i++) {
-    const theta = Math.random() * Math.PI * 2;
-    const phi = Math.acos(2 * Math.random() - 1);
-    const r = radius * (0.6 + 0.4 * Math.random());
-    positions[i*3] = r * Math.sin(phi) * Math.cos(theta);
-    positions[i*3+1] = r * Math.cos(phi);
-    positions[i*3+2] = r * Math.sin(phi) * Math.sin(theta);
-    phases[i*2] = Math.random() * Math.PI * 2;
-    phases[i*2+1] = 0.2 + Math.random() * 0.6;
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  const mat = new THREE.PointsMaterial({ 
-    map: starPngTexture, 
-    size: 1.0, 
-    color: 0xffffff,
-    transparent: true, 
-    depthWrite: false, 
-    blending: THREE.AdditiveBlending, 
-    sizeAttenuation: true 
-  });
-  const points = new THREE.Points(geo, mat);
-  points.frustumCulled = false;
-  return { points, positions: positions.slice(), phases };
-}
-
-function createAmbientStars(count) {
-  const positions = new Float32Array(count * 3);
-  const phases = new Float32Array(count * 4);
-  for (let i = 0; i < count; i++) {
-    positions[i*3] = (Math.random() - 0.5) * 5;
-    positions[i*3+1] = 0.3 + Math.random() * 2.5;
-    positions[i*3+2] = -0.5 - Math.random() * 3;
-    phases[i*4] = Math.random() * Math.PI * 2;
-    phases[i*4+1] = 0.5 + Math.random() * 2;
-    phases[i*4+2] = Math.random() * Math.PI * 2;
-    phases[i*4+3] = Math.random() * Math.PI * 2;
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  const mat = new THREE.PointsMaterial({ 
-    map: starPngTexture, 
-    size: 0.08, 
-    color: 0xffffff,
-    transparent: true, 
-    opacity: 0.9, 
-    depthWrite: false, 
-    blending: THREE.AdditiveBlending, 
-    sizeAttenuation: true 
-  });
-  const points = new THREE.Points(geo, mat);
-  points.frustumCulled = false;
-  return { points, positions: positions.slice(), phases };
-}
-
-function updateStars(data, time) {
-  if (!data) return;
-  // 简化：只做整体透明度闪烁，不改变颜色
-}
-
-function updateFloatingStars(data, time) {
-  if (!data) return;
-  const { points, positions, phases } = data;
-  const pos = points.geometry.attributes.position.array;
-  const count = positions.length / 3;
-  for (let i = 0; i < count; i++) {
-    const drift = 0.3;
-    pos[i*3] = positions[i*3] + Math.sin(time * 0.1 + phases[i*4+2]) * drift;
-    pos[i*3+1] = positions[i*3+1] + Math.sin(time * 0.08 + phases[i*4]) * drift * 0.3;
-    pos[i*3+2] = positions[i*3+2] + Math.cos(time * 0.12 + phases[i*4+3]) * drift;
-  }
-  points.geometry.attributes.position.needsUpdate = true;
-}
-
-function updateBrightStars(data, time) {
-  if (!data) return;
-}
-
-// ============ 12星座数据（IAU标准连线，分布更广，up值≥-2）============
+// ============ 12星座数据（IAU标准连线）============
 function getConstellationsData() {
   return [
-    // Aries 白羊座 - 右前远高
     { 
       name: "Aries", 
       stars: [
-        { x: 0, y: 0, z: 0, size: 0.7 },        // 0: Hamal (α)
-        { x: -1.0, y: 0.5, z: 0.1, size: 0.55 }, // 1: Sheratan (β)
-        { x: -1.8, y: 1.0, z: 0, size: 0.5 },   // 2: Mesarthim (γ)
-        { x: 1.2, y: -0.3, z: -0.1, size: 0.45 } // 3: 41 Ari
+        { x: 0, y: 0, z: 0, size: 0.7 },
+        { x: -1.0, y: 0.5, z: 0.1, size: 0.55 },
+        { x: -1.8, y: 1.0, z: 0, size: 0.5 },
+        { x: 1.2, y: -0.3, z: -0.1, size: 0.45 }
       ], 
       lines: [[2,1], [1,0], [0,3]], 
       position: { forward: 32, right: 38, up: 14 } 
     },
-    // Taurus 金牛座 - 左近低
     { 
       name: "Taurus", 
       stars: [
-        { x: 0, y: 0, z: 0, size: 0.8 },        // 0: Aldebaran (α)
-        { x: -3.0, y: 1.5, z: 0.1, size: 0.6 }, // 1: Elnath (β)
-        { x: 0.5, y: -1.0, z: 0, size: 0.5 },   // 2: θ Tau
-        { x: -0.8, y: 0.8, z: -0.1, size: 0.5 }, // 3: γ Tau (Hyades)
-        { x: -0.3, y: 0.5, z: 0.1, size: 0.5 }, // 4: δ Tau (Hyades)
-        { x: -1.5, y: 1.0, z: 0, size: 0.5 },   // 5: ε Tau (Hyades)
-        { x: -2.2, y: 2.0, z: -0.1, size: 0.5 } // 6: ζ Tau (horn tip)
+        { x: 0, y: 0, z: 0, size: 0.8 },
+        { x: -3.0, y: 1.5, z: 0.1, size: 0.6 },
+        { x: 0.5, y: -1.0, z: 0, size: 0.5 },
+        { x: -0.8, y: 0.8, z: -0.1, size: 0.5 },
+        { x: -0.3, y: 0.5, z: 0.1, size: 0.5 },
+        { x: -1.5, y: 1.0, z: 0, size: 0.5 },
+        { x: -2.2, y: 2.0, z: -0.1, size: 0.5 }
       ], 
       lines: [[0,3], [0,4], [3,4], [4,5], [5,1], [5,6], [0,2]], 
       position: { forward: 14, right: -42, up: 2 } 
     },
-    // Gemini 双子座 - 正前方远高
     { 
       name: "Gemini", 
       stars: [
-        { x: 0, y: 3.0, z: 0, size: 0.7 },      // 0: Castor (α)
-        { x: 1.5, y: 2.8, z: 0.1, size: 0.7 },  // 1: Pollux (β)
-        { x: 0.1, y: 2.0, z: 0, size: 0.45 },   // 2: τ
-        { x: 1.4, y: 1.8, z: 0.1, size: 0.45 }, // 3: κ
-        { x: 0.2, y: 1.0, z: -0.1, size: 0.5 }, // 4: ε (Mebsuta)
-        { x: 1.3, y: 0.8, z: 0, size: 0.5 },    // 5: δ (Wasat)
-        { x: 0.3, y: 0, z: 0.1, size: 0.45 },   // 6: μ (Tejat)
-        { x: 1.2, y: -0.2, z: -0.1, size: 0.45 }, // 7: ζ
-        { x: 0.4, y: -1.0, z: 0, size: 0.45 },  // 8: η
-        { x: 1.1, y: -1.2, z: 0.1, size: 0.55 } // 9: γ (Alhena)
+        { x: 0, y: 3.0, z: 0, size: 0.7 },
+        { x: 1.5, y: 2.8, z: 0.1, size: 0.7 },
+        { x: 0.1, y: 2.0, z: 0, size: 0.45 },
+        { x: 1.4, y: 1.8, z: 0.1, size: 0.45 },
+        { x: 0.2, y: 1.0, z: -0.1, size: 0.5 },
+        { x: 1.3, y: 0.8, z: 0, size: 0.5 },
+        { x: 0.3, y: 0, z: 0.1, size: 0.45 },
+        { x: 1.2, y: -0.2, z: -0.1, size: 0.45 },
+        { x: 0.4, y: -1.0, z: 0, size: 0.45 },
+        { x: 1.1, y: -1.2, z: 0.1, size: 0.55 }
       ], 
       lines: [[0,2], [2,4], [4,6], [6,8], [1,3], [3,5], [5,7], [7,9]], 
       position: { forward: 40, right: 5, up: 10 } 
     },
-    // Cancer 巨蟹座 - 右近中
     { 
       name: "Cancer", 
       stars: [
-        { x: 0, y: 0, z: 0, size: 0.55 },       // 0: Acubens (α)
-        { x: 0.5, y: -1.5, z: 0.1, size: 0.6 }, // 1: Tarf (β)
-        { x: -1.0, y: 0.8, z: 0, size: 0.5 },   // 2: γ (Asellus Borealis)
-        { x: 0.8, y: 0.6, z: -0.1, size: 0.5 }, // 3: δ (Asellus Australis)
-        { x: -0.5, y: 1.5, z: 0.1, size: 0.45 } // 4: ι
+        { x: 0, y: 0, z: 0, size: 0.55 },
+        { x: 0.5, y: -1.5, z: 0.1, size: 0.6 },
+        { x: -1.0, y: 0.8, z: 0, size: 0.5 },
+        { x: 0.8, y: 0.6, z: -0.1, size: 0.5 },
+        { x: -0.5, y: 1.5, z: 0.1, size: 0.45 }
       ], 
       lines: [[0,1], [0,2], [0,3], [2,4], [3,4]], 
       position: { forward: 15, right: 30, up: 4 } 
     },
-    // Leo 狮子座 - 左远高（镰刀+三角形）
     { 
       name: "Leo", 
       stars: [
-        { x: 0, y: 0, z: 0, size: 0.85 },       // 0: Regulus (α)
-        { x: -0.8, y: 1.5, z: 0.1, size: 0.55 }, // 1: η
-        { x: 0.5, y: 1.0, z: 0, size: 0.6 },    // 2: γ (Algieba)
-        { x: 1.8, y: 2.0, z: -0.1, size: 0.5 }, // 3: ζ
-        { x: 0.3, y: 2.2, z: 0.1, size: 0.5 },  // 4: μ
-        { x: -0.5, y: 2.8, z: 0, size: 0.5 },   // 5: ε
-        { x: 1.5, y: 0.8, z: -0.1, size: 0.55 }, // 6: δ (Zosma)
-        { x: 2.5, y: 0.5, z: 0.1, size: 0.5 },  // 7: θ (Chertan)
-        { x: 3.5, y: 0, z: 0, size: 0.6 }       // 8: β (Denebola)
+        { x: 0, y: 0, z: 0, size: 0.85 },
+        { x: -0.8, y: 1.5, z: 0.1, size: 0.55 },
+        { x: 0.5, y: 1.0, z: 0, size: 0.6 },
+        { x: 1.8, y: 2.0, z: -0.1, size: 0.5 },
+        { x: 0.3, y: 2.2, z: 0.1, size: 0.5 },
+        { x: -0.5, y: 2.8, z: 0, size: 0.5 },
+        { x: 1.5, y: 0.8, z: -0.1, size: 0.55 },
+        { x: 2.5, y: 0.5, z: 0.1, size: 0.5 },
+        { x: 3.5, y: 0, z: 0, size: 0.6 }
       ], 
       lines: [[0,1], [1,5], [5,4], [4,3], [1,2], [2,6], [6,7], [7,8], [2,0]], 
       position: { forward: 28, right: -28, up: 16 } 
     },
-    // Virgo 处女座 - 右远中
     { 
       name: "Virgo", 
       stars: [
-        { x: 0, y: 0, z: 0, size: 0.85 },       // 0: Spica (α)
-        { x: -0.8, y: 1.5, z: 0.1, size: 0.55 }, // 1: γ (Porrima)
-        { x: -0.5, y: 2.5, z: 0, size: 0.5 },   // 2: δ
-        { x: 0, y: 3.5, z: -0.1, size: 0.55 },  // 3: ε (Vindemiatrix)
-        { x: -1.5, y: 1.0, z: 0.1, size: 0.5 }, // 4: η (Zaniah)
-        { x: 0.5, y: 1.8, z: 0, size: 0.5 },    // 5: ζ
-        { x: 1.5, y: 2.2, z: -0.1, size: 0.5 }  // 6: β (Zavijava)
+        { x: 0, y: 0, z: 0, size: 0.85 },
+        { x: -0.8, y: 1.5, z: 0.1, size: 0.55 },
+        { x: -0.5, y: 2.5, z: 0, size: 0.5 },
+        { x: 0, y: 3.5, z: -0.1, size: 0.55 },
+        { x: -1.5, y: 1.0, z: 0.1, size: 0.5 },
+        { x: 0.5, y: 1.8, z: 0, size: 0.5 },
+        { x: 1.5, y: 2.2, z: -0.1, size: 0.5 }
       ], 
       lines: [[0,4], [4,1], [1,2], [2,3], [1,5], [5,6]], 
       position: { forward: 22, right: 45, up: 6 } 
     },
-    // Libra 天秤座 - 正前中低
     { 
       name: "Libra", 
       stars: [
-        { x: 0, y: 0, z: 0, size: 0.6 },        // 0: α (Zubenelgenubi)
-        { x: -1.2, y: 1.5, z: 0.1, size: 0.6 }, // 1: β (Zubeneschamali)
-        { x: 1.0, y: 1.2, z: -0.1, size: 0.55 }, // 2: γ
-        { x: -0.8, y: 2.8, z: 0, size: 0.5 },   // 3: σ
-        { x: 0.6, y: 2.5, z: 0.1, size: 0.5 }   // 4: υ
+        { x: 0, y: 0, z: 0, size: 0.6 },
+        { x: -1.2, y: 1.5, z: 0.1, size: 0.6 },
+        { x: 1.0, y: 1.2, z: -0.1, size: 0.55 },
+        { x: -0.8, y: 2.8, z: 0, size: 0.5 },
+        { x: 0.6, y: 2.5, z: 0.1, size: 0.5 }
       ], 
       lines: [[0,1], [0,2], [1,3], [2,4]], 
       position: { forward: 35, right: -5, up: 0 } 
     },
-    // Scorpius 天蝎座 - 左远中低（完整蝎子形）
     { 
       name: "Scorpius", 
       stars: [
-        { x: 0, y: 0, z: 0, size: 0.9 },        // 0: Antares (α)
-        { x: -1.5, y: 1.5, z: 0.1, size: 0.55 }, // 1: β (Graffias)
-        { x: -0.5, y: 1.8, z: 0, size: 0.55 },  // 2: δ (Dschubba)
-        { x: 0.5, y: 2.0, z: -0.1, size: 0.5 }, // 3: π
-        { x: -0.3, y: 0.8, z: 0.1, size: 0.5 }, // 4: σ
-        { x: 0.5, y: -0.8, z: 0, size: 0.5 },   // 5: τ
-        { x: 1.2, y: -1.5, z: -0.1, size: 0.5 }, // 6: ε
-        { x: 2.0, y: -1.2, z: 0.1, size: 0.5 }, // 7: ζ
-        { x: 2.5, y: -1.0, z: 0, size: 0.45 },  // 8: η
-        { x: 2.8, y: -1.8, z: -0.1, size: 0.5 }, // 9: θ (Sargas)
-        { x: 3.2, y: -2.2, z: 0.1, size: 0.45 }, // 10: ι
-        { x: 3.6, y: -2.6, z: 0, size: 0.45 },  // 11: κ
-        { x: 4.0, y: -2.2, z: -0.1, size: 0.55 }, // 12: λ (Shaula)
-        { x: 4.2, y: -1.8, z: 0.1, size: 0.5 }  // 13: υ (Lesath)
+        { x: 0, y: 0, z: 0, size: 0.9 },
+        { x: -1.5, y: 1.5, z: 0.1, size: 0.55 },
+        { x: -0.5, y: 1.8, z: 0, size: 0.55 },
+        { x: 0.5, y: 2.0, z: -0.1, size: 0.5 },
+        { x: -0.3, y: 0.8, z: 0.1, size: 0.5 },
+        { x: 0.5, y: -0.8, z: 0, size: 0.5 },
+        { x: 1.2, y: -1.5, z: -0.1, size: 0.5 },
+        { x: 2.0, y: -1.2, z: 0.1, size: 0.5 },
+        { x: 2.5, y: -1.0, z: 0, size: 0.45 },
+        { x: 2.8, y: -1.8, z: -0.1, size: 0.5 },
+        { x: 3.2, y: -2.2, z: 0.1, size: 0.45 },
+        { x: 3.6, y: -2.6, z: 0, size: 0.45 },
+        { x: 4.0, y: -2.2, z: -0.1, size: 0.55 },
+        { x: 4.2, y: -1.8, z: 0.1, size: 0.5 }
       ], 
       lines: [[1,2], [2,3], [2,4], [4,0], [0,5], [5,6], [6,7], [7,8], [7,9], [9,10], [10,11], [11,12], [12,13]], 
       position: { forward: 20, right: -45, up: 8 } 
     },
-    // Sagittarius 射手座 - 远处高空（茶壶形）
     { 
       name: "Sagittarius", 
       stars: [
-        { x: 0, y: 0, z: 0, size: 0.65 },       // 0: ε (Kaus Australis)
-        { x: 0.3, y: 1.2, z: 0.1, size: 0.6 },  // 1: δ (Kaus Media)
-        { x: 0.8, y: 2.0, z: 0, size: 0.55 },   // 2: λ (Kaus Borealis)
-        { x: -0.8, y: 0.5, z: -0.1, size: 0.55 }, // 3: ζ (Ascella)
-        { x: -0.3, y: 1.5, z: 0.1, size: 0.5 }, // 4: φ
-        { x: -1.0, y: 1.2, z: 0, size: 0.55 },  // 5: σ (Nunki)
-        { x: -0.5, y: -0.5, z: -0.1, size: 0.5 }, // 6: τ
-        { x: 1.2, y: 0.8, z: 0.1, size: 0.55 }  // 7: γ (Alnasl)
+        { x: 0, y: 0, z: 0, size: 0.65 },
+        { x: 0.3, y: 1.2, z: 0.1, size: 0.6 },
+        { x: 0.8, y: 2.0, z: 0, size: 0.55 },
+        { x: -0.8, y: 0.5, z: -0.1, size: 0.55 },
+        { x: -0.3, y: 1.5, z: 0.1, size: 0.5 },
+        { x: -1.0, y: 1.2, z: 0, size: 0.55 },
+        { x: -0.5, y: -0.5, z: -0.1, size: 0.5 },
+        { x: 1.2, y: 0.8, z: 0.1, size: 0.55 }
       ], 
       lines: [[0,1], [1,2], [2,4], [4,5], [5,0], [3,5], [3,0], [3,6], [1,7]], 
       position: { forward: 45, right: 22, up: 18 } 
     },
-    // Capricornus 摩羯座 - 右中低
     { 
       name: "Capricornus", 
       stars: [
-        { x: 0, y: 0, z: 0, size: 0.55 },       // 0: α (Algedi)
-        { x: 2.0, y: 0.3, z: 0.1, size: 0.55 }, // 1: β (Dabih)
-        { x: 0.5, y: -0.8, z: 0, size: 0.45 },  // 2: ψ
-        { x: 0.8, y: -1.5, z: -0.1, size: 0.45 }, // 3: ω
-        { x: 1.5, y: -1.8, z: 0.1, size: 0.5 }, // 4: ζ
-        { x: 2.5, y: -1.2, z: 0, size: 0.55 },  // 5: δ (Deneb Algedi)
-        { x: 3.0, y: -0.5, z: -0.1, size: 0.55 }, // 6: γ (Nashira)
-        { x: 2.0, y: -1.0, z: 0.1, size: 0.45 }, // 7: θ
-        { x: 2.5, y: 0, z: 0, size: 0.45 }      // 8: ι
+        { x: 0, y: 0, z: 0, size: 0.55 },
+        { x: 2.0, y: 0.3, z: 0.1, size: 0.55 },
+        { x: 0.5, y: -0.8, z: 0, size: 0.45 },
+        { x: 0.8, y: -1.5, z: -0.1, size: 0.45 },
+        { x: 1.5, y: -1.8, z: 0.1, size: 0.5 },
+        { x: 2.5, y: -1.2, z: 0, size: 0.55 },
+        { x: 3.0, y: -0.5, z: -0.1, size: 0.55 },
+        { x: 2.0, y: -1.0, z: 0.1, size: 0.45 },
+        { x: 2.5, y: 0, z: 0, size: 0.45 }
       ], 
       lines: [[0,1], [0,2], [2,3], [3,4], [4,5], [5,6], [1,8], [8,7], [7,4]], 
       position: { forward: 18, right: 35, up: -2 } 
     },
-    // Aquarius 水瓶座 - 左近高（水瓶+水流）
     { 
       name: "Aquarius", 
       stars: [
-        { x: 0, y: 2.0, z: 0, size: 0.6 },      // 0: α (Sadalmelik)
-        { x: -1.2, y: 1.5, z: 0.1, size: 0.6 }, // 1: β (Sadalsuud)
-        { x: 0.8, y: 0.5, z: 0, size: 0.55 },   // 2: γ (Sadachbia)
-        { x: 0.3, y: 1.2, z: -0.1, size: 0.5 }, // 3: ζ
-        { x: 0.5, y: 0.8, z: 0.1, size: 0.5 },  // 4: η
-        { x: 0.2, y: 0, z: 0, size: 0.5 },      // 5: π
-        { x: 0.8, y: -0.5, z: -0.1, size: 0.55 }, // 6: δ (Skat)
-        { x: 1.2, y: -1.2, z: 0.1, size: 0.5 }, // 7: λ
-        { x: 1.8, y: -1.5, z: 0, size: 0.45 },  // 8: τ
-        { x: -0.8, y: 2.5, z: -0.1, size: 0.5 } // 9: ε
+        { x: 0, y: 2.0, z: 0, size: 0.6 },
+        { x: -1.2, y: 1.5, z: 0.1, size: 0.6 },
+        { x: 0.8, y: 0.5, z: 0, size: 0.55 },
+        { x: 0.3, y: 1.2, z: -0.1, size: 0.5 },
+        { x: 0.5, y: 0.8, z: 0.1, size: 0.5 },
+        { x: 0.2, y: 0, z: 0, size: 0.5 },
+        { x: 0.8, y: -0.5, z: -0.1, size: 0.55 },
+        { x: 1.2, y: -1.2, z: 0.1, size: 0.5 },
+        { x: 1.8, y: -1.5, z: 0, size: 0.45 },
+        { x: -0.8, y: 2.5, z: -0.1, size: 0.5 }
       ], 
       lines: [[0,1], [0,3], [3,4], [4,2], [2,5], [5,6], [6,7], [7,8], [1,9]], 
       position: { forward: 12, right: -22, up: 16 } 
     },
-    // Pisces 双鱼座 - 左中（两条鱼+V形连接）
     { 
       name: "Pisces", 
       stars: [
-        { x: 0, y: 0, z: 0, size: 0.55 },       // 0: α (Alrescha) 连接点
-        { x: -0.8, y: -0.5, z: 0.1, size: 0.5 }, // 1: λ
-        { x: -1.5, y: -0.8, z: 0, size: 0.5 },  // 2: κ
-        { x: -2.2, y: -0.5, z: -0.1, size: 0.55 }, // 3: γ
-        { x: -2.8, y: -0.2, z: 0.1, size: 0.5 }, // 4: θ
-        { x: -3.2, y: 0.2, z: 0, size: 0.5 },   // 5: ι (西鱼)
-        { x: 0.6, y: 0.5, z: -0.1, size: 0.5 }, // 6: χ
-        { x: 1.2, y: 1.0, z: 0.1, size: 0.55 }, // 7: φ
-        { x: 1.8, y: 1.5, z: 0, size: 0.5 },    // 8: υ
-        { x: 2.4, y: 1.8, z: -0.1, size: 0.5 }  // 9: τ (东鱼)
+        { x: 0, y: 0, z: 0, size: 0.55 },
+        { x: -0.8, y: -0.5, z: 0.1, size: 0.5 },
+        { x: -1.5, y: -0.8, z: 0, size: 0.5 },
+        { x: -2.2, y: -0.5, z: -0.1, size: 0.55 },
+        { x: -2.8, y: -0.2, z: 0.1, size: 0.5 },
+        { x: -3.2, y: 0.2, z: 0, size: 0.5 },
+        { x: 0.6, y: 0.5, z: -0.1, size: 0.5 },
+        { x: 1.2, y: 1.0, z: 0.1, size: 0.55 },
+        { x: 1.8, y: 1.5, z: 0, size: 0.5 },
+        { x: 2.4, y: 1.8, z: -0.1, size: 0.5 }
       ], 
       lines: [[0,1], [1,2], [2,3], [3,4], [4,5], [0,6], [6,7], [7,8], [8,9]], 
       position: { forward: 30, right: -35, up: 4 } 
@@ -843,7 +887,7 @@ function createConstellation(data) {
   const starMeshes = [];
   data.stars.forEach((star) => {
     const starMat = new THREE.SpriteMaterial({ 
-      map: starPngTexture, 
+      map: star01PngTexture,  // 使用 star_01.png
       color: new THREE.Color(1, 0.98, 0.9), 
       transparent: true, 
       opacity: 0, 
@@ -852,8 +896,8 @@ function createConstellation(data) {
     });
     const sprite = new THREE.Sprite(starMat);
     sprite.position.set(star.x, star.y, star.z);
-    sprite.scale.setScalar(star.size);
-    sprite.userData = { baseMat: starMat, baseSize: star.size };
+    sprite.scale.setScalar(star.size * 0.85);  // 缩小 0.85 倍
+    sprite.userData = { baseMat: starMat, baseSize: star.size * 0.85 };
     group.add(sprite);
     starMeshes.push(sprite);
   });
