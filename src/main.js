@@ -29,6 +29,7 @@ let saturnMesh = null;
 let saturnRingMesh = null;
 let sunMesh = null;
 let sunGlowSprite = null;
+let venusMesh = null;
 let easterEggs = [];
 let constellationGroups = [];
 let placed = false;
@@ -57,9 +58,6 @@ let doorUp = new THREE.Vector3();
 let lastSide = 1;
 
 const _camPos = new THREE.Vector3();
-let lastCamPos = new THREE.Vector3();
-let stillTime = 0;
-let starsAttracted = false;
 
 let starData = null;
 let floatingStarData = null;
@@ -78,9 +76,8 @@ let galaxyTexture = null;
 
 // 银河漩涡
 let galaxySprite = null;
-let galaxyVisible = false;
-let galaxyOpacity = 0;
-let galaxyScale = 0;
+let galaxyOrbitStars = null;
+let galaxyOrbitData = null;
 
 // 星球光晕
 let moonGlow = null;
@@ -88,6 +85,7 @@ let jupiterGlow = null;
 let marsGlow = null;
 let saturnGlow = null;
 let sunExtraGlow = null;
+let venusGlow = null;
 
 // 彩蛋
 let wishMessage = null;
@@ -167,16 +165,18 @@ function createCollectionUI() {
   div.id = "collection-ui";
   div.style.cssText = `
     position: fixed;
-    bottom: 20px;
+    bottom: 30px;
     left: 20px;
-    z-index: 9999;
+    z-index: 99999;
     font-family: 'Cinzel', Georgia, serif;
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.9);
-    text-shadow: 0 0 10px rgba(200, 220, 255, 0.8), 0 0 20px rgba(150, 180, 255, 0.5);
+    font-size: 14px;
+    font-weight: 500;
+    color: #ffffff;
+    text-shadow: 0 0 10px rgba(200, 220, 255, 0.8), 0 0 20px rgba(150, 180, 255, 0.5), 0 0 30px rgba(100, 150, 255, 0.3);
     opacity: 0;
-    transition: opacity 0.5s;
+    transition: opacity 0.5s ease;
     pointer-events: none;
+    letter-spacing: 1px;
   `;
   div.textContent = "Collected 0/12";
   document.body.appendChild(div);
@@ -186,7 +186,11 @@ function createCollectionUI() {
 function updateCollectionUI() {
   if (collectionUI) {
     collectionUI.textContent = `Collected ${collectedCount}/12`;
-    collectionUI.style.opacity = isInside ? "1" : "0";
+    if (isInside && transitionValue > 0.5) {
+      collectionUI.style.opacity = "1";
+    } else {
+      collectionUI.style.opacity = "0";
+    }
   }
 }
 
@@ -471,19 +475,14 @@ function createNearbyStars(count) {
   const points = new THREE.Points(geo, mat);
   points.frustumCulled = false;
   points.renderOrder = 20;
-  return { points, baseOffsets: positions.slice(), colors: colors.slice(), sizes: sizes.slice(), phases, count, attractionFactor: 0 };
+  return { points, baseOffsets: positions.slice(), colors: colors.slice(), sizes: sizes.slice(), phases, count };
 }
 
-function updateNearbyStars(data, time, camPos, delta) {
+function updateNearbyStars(data, time, camPos) {
   if (!data) return;
   const { points, baseOffsets, colors, phases, count } = data;
   const pos = points.geometry.attributes.position.array;
   const col = points.geometry.attributes.color.array;
-  
-  // 吸引效果
-  const attractTarget = starsAttracted ? 0.6 : 0;
-  data.attractionFactor += (attractTarget - data.attractionFactor) * delta * 0.5;
-  const af = data.attractionFactor;
   
   for (let i = 0; i < count; i++) {
     const twinkle = 0.3 + 0.7 * Math.sin(time * phases[i*5+1] + phases[i*5]);
@@ -500,19 +499,9 @@ function updateNearbyStars(data, time, camPos, delta) {
     const rotX = baseX * Math.cos(rotAngle) - baseZ * Math.sin(rotAngle);
     const rotZ = baseX * Math.sin(rotAngle) + baseZ * Math.cos(rotAngle);
     
-    // 计算正常位置
-    const normalX = camPos.x + rotX + driftX;
-    const normalY = camPos.y + baseOffsets[i*3+1] + driftY;
-    const normalZ = camPos.z + rotZ + driftZ;
-    
-    // 吸引到用户附近
-    const attractedX = camPos.x + (rotX + driftX) * 0.3;
-    const attractedY = camPos.y + (baseOffsets[i*3+1] + driftY) * 0.3;
-    const attractedZ = camPos.z + (rotZ + driftZ) * 0.3;
-    
-    pos[i*3] = normalX + (attractedX - normalX) * af;
-    pos[i*3+1] = normalY + (attractedY - normalY) * af;
-    pos[i*3+2] = normalZ + (attractedZ - normalZ) * af;
+    pos[i*3] = camPos.x + rotX + driftX;
+    pos[i*3+1] = camPos.y + baseOffsets[i*3+1] + driftY;
+    pos[i*3+2] = camPos.z + rotZ + driftZ;
   }
   points.geometry.attributes.position.needsUpdate = true;
   points.geometry.attributes.color.needsUpdate = true;
@@ -624,39 +613,101 @@ function createGalaxySprite() {
     depthWrite: false,
   });
   const sprite = new THREE.Sprite(mat);
-  sprite.scale.set(0.1, 0.1, 1);
+  sprite.scale.set(35, 35, 1);
   sprite.renderOrder = 5;
   return sprite;
 }
 
-function updateGalaxy(xrCam, delta, time) {
-  if (!galaxySprite || !isInside) return;
+function createGalaxyOrbitStars(count) {
+  const positions = new Float32Array(count * 3);
+  const colors = new Float32Array(count * 3);
+  const phases = new Float32Array(count * 3);
   
-  // 检测是否抬头
-  const camDir = new THREE.Vector3(0, 0, -1).applyQuaternion(xrCam.quaternion);
-  const lookingUp = camDir.y < -0.5; // 相机朝上
-  
-  if (lookingUp && !galaxyVisible) {
-    galaxyVisible = true;
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const r = 5 + Math.random() * 20;
+    positions[i*3] = Math.cos(angle) * r;
+    positions[i*3+1] = (Math.random() - 0.5) * 3;
+    positions[i*3+2] = Math.sin(angle) * r;
+    
+    const c = getRandomStarColor();
+    colors[i*3] = c[0];
+    colors[i*3+1] = c[1];
+    colors[i*3+2] = c[2];
+    
+    phases[i*3] = angle;
+    phases[i*3+1] = r;
+    phases[i*3+2] = Math.random() * Math.PI * 2;
   }
   
-  // 银河可见时的动画
-  if (galaxyVisible) {
-    galaxyOpacity = Math.min(0.7, galaxyOpacity + delta * 0.15);
-    galaxyScale = Math.min(35, galaxyScale + delta * 8);
-  } else {
-    galaxyOpacity = Math.max(0, galaxyOpacity - delta * 0.3);
-  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   
-  galaxySprite.material.opacity = galaxyOpacity * transitionValue;
-  galaxySprite.scale.set(galaxyScale, galaxyScale, 1);
+  const mat = new THREE.PointsMaterial({
+    map: starPngTexture,
+    size: 0.3,
+    vertexColors: true,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    sizeAttenuation: true
+  });
   
-  // 位置在用户正上方
-  xrCam.getWorldPosition(_camPos);
-  galaxySprite.position.set(_camPos.x, _camPos.y + 25, _camPos.z);
+  const points = new THREE.Points(geo, mat);
+  points.frustumCulled = false;
+  
+  return { points, phases, count };
+}
+
+function updateGalaxy(time, delta) {
+  if (!galaxySprite || !placed) return;
+  
+  // 银河漩涡位置：比土星稍远
+  const galaxyPos = doorPlanePoint.clone()
+    .addScaledVector(doorForward, -35)
+    .addScaledVector(doorRight, -25);
+  galaxyPos.y = doorPlanePoint.y + 15;
+  
+  galaxySprite.position.copy(galaxyPos);
+  galaxySprite.material.opacity = transitionValue * 0.6;
   
   // 旋转
-  galaxySprite.material.rotation += delta * 0.08;
+  galaxySprite.material.rotation += delta * 0.05;
+  
+  // 倾斜（通过调整sprite朝向实现视觉倾斜效果）
+  // Sprite会自动面向相机，但我们可以通过旋转实现倾斜感
+  
+  // 更新环绕星星
+  if (galaxyOrbitData) {
+    const { points, phases, count } = galaxyOrbitData;
+    const pos = points.geometry.attributes.position.array;
+    
+    for (let i = 0; i < count; i++) {
+      const baseAngle = phases[i*3];
+      const r = phases[i*3+1];
+      const phaseOffset = phases[i*3+2];
+      
+      const angle = baseAngle + time * 0.1 * (1 + 0.5 * (1 - r / 25));
+      
+      const localX = Math.cos(angle) * r;
+      const localY = (Math.sin(time * 0.5 + phaseOffset) * 0.5) * (r / 25);
+      const localZ = Math.sin(angle) * r;
+      
+      // 倾斜变换
+      const tiltAngle = Math.PI * 0.2;
+      const tiltedY = localY * Math.cos(tiltAngle) - localZ * Math.sin(tiltAngle);
+      const tiltedZ = localY * Math.sin(tiltAngle) + localZ * Math.cos(tiltAngle);
+      
+      pos[i*3] = galaxyPos.x + localX;
+      pos[i*3+1] = galaxyPos.y + tiltedY;
+      pos[i*3+2] = galaxyPos.z + tiltedZ;
+    }
+    
+    points.geometry.attributes.position.needsUpdate = true;
+    points.material.opacity = transitionValue * 0.7;
+  }
 }
 
 // ============ 祝福彩蛋系统 ============
@@ -861,18 +912,18 @@ function spawnGuideMeteor() {
   
   // 从右前方开始
   const spawnPos = _camPos.clone()
-    .add(camForward.clone().multiplyScalar(5))
-    .add(camRight.clone().multiplyScalar(6))
-    .add(camUp.clone().multiplyScalar(3));
+    .add(camForward.clone().multiplyScalar(6))
+    .add(camRight.clone().multiplyScalar(5))
+    .add(camUp.clone().multiplyScalar(2));
   
   // 飞向左前方
   const flyDir = new THREE.Vector3()
     .addScaledVector(camRight, -0.9)
-    .addScaledVector(camUp, -0.2)
+    .addScaledVector(camUp, -0.15)
     .addScaledVector(camForward, 0.3)
     .normalize();
   
-  const meteor = createArcMeteor(spawnPos, flyDir, 1.5, true);
+  const meteor = createArcMeteor(spawnPos, flyDir, 1.5);
   scene.add(meteor);
   meteors.push(meteor);
 }
@@ -913,7 +964,7 @@ function spawnMeteor() {
     .add(camForward.clone().multiplyScalar(6 + Math.random() * 4))
     .add(camRight.clone().multiplyScalar(-ndx * 4 + (Math.random() - 0.5) * 2))
     .add(camUp.clone().multiplyScalar(ndy * 3 + 2 + Math.random() * 2));
-  const meteor = createArcMeteor(spawnPos, flyDir, userCurvature, false);
+  const meteor = createArcMeteor(spawnPos, flyDir, userCurvature);
   scene.add(meteor);
   meteors.push(meteor);
 }
@@ -941,19 +992,18 @@ function spawnMeteorShower() {
         .addScaledVector(camForward, (Math.random() - 0.5) * 0.4)
         .normalize();
       const curvature = (Math.random() - 0.5) * 2.5;
-      const meteor = createArcMeteor(spawnPos, flyDir, curvature, false);
+      const meteor = createArcMeteor(spawnPos, flyDir, curvature);
       scene.add(meteor);
       meteors.push(meteor);
     }, i * (80 + Math.random() * 150));
   }
 }
 
-function createArcMeteor(startPos, baseDir, userCurvature, isGuide = false) {
+function createArcMeteor(startPos, baseDir, userCurvature) {
   const group = new THREE.Group();
   group.renderOrder = 200;
   
-  const scaleFactor = isGuide ? 1.8 : 1;
-  const arcLength = (20 + Math.random() * 15) * (isGuide ? 0.7 : 1);
+  const arcLength = 20 + Math.random() * 15;
   const arcBend = userCurvature + (Math.random() - 0.5) * 3;
   const gravity = -0.35 - Math.random() * 0.25;
   
@@ -969,19 +1019,19 @@ function createArcMeteor(startPos, baseDir, userCurvature, isGuide = false) {
   
   const coreMat = new THREE.SpriteMaterial({ map: starTexture, color: 0xffffff, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false });
   const coreSprite = new THREE.Sprite(coreMat);
-  coreSprite.scale.set(1.0 * scaleFactor, 0.4 * scaleFactor, 1);
+  coreSprite.scale.set(1.0, 0.4, 1);
   coreSprite.renderOrder = 202;
   group.add(coreSprite);
   
   const innerMat = new THREE.SpriteMaterial({ map: starTexture, color: 0xffffff, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false });
   const innerSprite = new THREE.Sprite(innerMat);
-  innerSprite.scale.set(0.5 * scaleFactor, 0.5 * scaleFactor, 1);
+  innerSprite.scale.set(0.5, 0.5, 1);
   innerSprite.renderOrder = 203;
   group.add(innerSprite);
   
   const glowMat = new THREE.SpriteMaterial({ map: starTexture, color: 0xffffee, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false });
   const glowSprite = new THREE.Sprite(glowMat);
-  glowSprite.scale.set(1.5 * scaleFactor, 0.6 * scaleFactor, 1);
+  glowSprite.scale.set(1.5, 0.6, 1);
   glowSprite.renderOrder = 201;
   group.add(glowSprite);
   
@@ -989,7 +1039,7 @@ function createArcMeteor(startPos, baseDir, userCurvature, isGuide = false) {
   const trailSprites = [];
   for (let i = 0; i < trailCount; i++) {
     const t = i / trailCount;
-    const size = 0.4 * Math.pow(1 - t, 0.8) * scaleFactor;
+    const size = 0.4 * Math.pow(1 - t, 0.8);
     const spriteMat = new THREE.SpriteMaterial({ map: starTexture, color: new THREE.Color(1, 1 - t * 0.3, 1 - t * 0.7), transparent: true, opacity: Math.pow(1 - t, 1.2), blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false });
     const sprite = new THREE.Sprite(spriteMat);
     sprite.scale.set(size, size, 1);
@@ -1002,9 +1052,9 @@ function createArcMeteor(startPos, baseDir, userCurvature, isGuide = false) {
   
   group.userData = { 
     curve, progress: 0, 
-    speed: isGuide ? 0.06 : (0.10 + Math.random() * 0.04), 
+    speed: 0.10 + Math.random() * 0.04, 
     life: 0, 
-    maxLife: isGuide ? 6 : (4.5 + Math.random() * 2), 
+    maxLife: 4.5 + Math.random() * 2, 
     coreMat, innerMat, glowMat, history: [], coreSprite, innerSprite, glowSprite, trailCount, trailSprites 
   };
   return group;
@@ -1054,24 +1104,40 @@ function updateMeteors(delta) {
   }
 }
 
-// ============ 12星座数据（重新分布） ============
+// ============ 12星座数据（恢复原本位置，分散分布） ============
 function getConstellationsData() {
   return [
-    // 近处8个 (forward 0-20, right -20~20, up -2~3)
-    { name: "Aries", stars: [{ x: 0, y: 0, z: 0, size: 0.7 },{ x: -1.0, y: 0.5, z: 0.1, size: 0.55 },{ x: -1.8, y: 1.0, z: 0, size: 0.5 },{ x: 1.2, y: -0.3, z: -0.1, size: 0.45 }], lines: [[2,1], [1,0], [0,3]], position: { forward: 6, right: 16, up: 1 } },
-    { name: "Taurus", stars: [{ x: 0, y: 0, z: 0, size: 0.8 },{ x: -3.0, y: 1.5, z: 0.1, size: 0.6 },{ x: 0.5, y: -1.0, z: 0, size: 0.5 },{ x: -0.8, y: 0.8, z: -0.1, size: 0.5 },{ x: -0.3, y: 0.5, z: 0.1, size: 0.5 },{ x: -1.5, y: 1.0, z: 0, size: 0.5 },{ x: -2.2, y: 2.0, z: -0.1, size: 0.5 }], lines: [[0,3], [0,4], [3,4], [4,5], [5,1], [5,6], [0,2]], position: { forward: 14, right: -17, up: 0 } },
-    { name: "Gemini", stars: [{ x: 0, y: 3.0, z: 0, size: 0.7 },{ x: 1.5, y: 2.8, z: 0.1, size: 0.7 },{ x: 0.1, y: 2.0, z: 0, size: 0.45 },{ x: 1.4, y: 1.8, z: 0.1, size: 0.45 },{ x: 0.2, y: 1.0, z: -0.1, size: 0.5 },{ x: 1.3, y: 0.8, z: 0, size: 0.5 },{ x: 0.3, y: 0, z: 0.1, size: 0.45 },{ x: 1.2, y: -0.2, z: -0.1, size: 0.45 },{ x: 0.4, y: -1.0, z: 0, size: 0.45 },{ x: 1.1, y: -1.2, z: 0.1, size: 0.55 }], lines: [[0,2], [2,4], [4,6], [6,8], [1,3], [3,5], [5,7], [7,9]], position: { forward: 18, right: 6, up: 2 } },
-    { name: "Cancer", stars: [{ x: 0, y: 0, z: 0, size: 0.55 },{ x: 0.5, y: -1.5, z: 0.1, size: 0.6 },{ x: -1.0, y: 0.8, z: 0, size: 0.5 },{ x: 0.8, y: 0.6, z: -0.1, size: 0.5 },{ x: -0.5, y: 1.5, z: 0.1, size: 0.45 }], lines: [[0,1], [0,2], [0,3], [2,4], [3,4]], position: { forward: 8, right: -8, up: -1 } },
-    { name: "Leo", stars: [{ x: 0, y: 0, z: 0, size: 0.85 },{ x: -0.8, y: 1.5, z: 0.1, size: 0.55 },{ x: 0.5, y: 1.0, z: 0, size: 0.6 },{ x: 1.8, y: 2.0, z: -0.1, size: 0.5 },{ x: 0.3, y: 2.2, z: 0.1, size: 0.5 },{ x: -0.5, y: 2.8, z: 0, size: 0.5 },{ x: 1.5, y: 0.8, z: -0.1, size: 0.55 },{ x: 2.5, y: 0.5, z: 0.1, size: 0.5 },{ x: 3.5, y: 0, z: 0, size: 0.6 }], lines: [[0,1], [1,5], [5,4], [4,3], [1,2], [2,6], [6,7], [7,8], [2,0]], position: { forward: 16, right: 12, up: 3 } },
-    { name: "Virgo", stars: [{ x: 0, y: 0, z: 0, size: 0.85 },{ x: -0.8, y: 1.5, z: 0.1, size: 0.55 },{ x: -0.5, y: 2.5, z: 0, size: 0.5 },{ x: 0, y: 3.5, z: -0.1, size: 0.55 },{ x: -1.5, y: 1.0, z: 0.1, size: 0.5 },{ x: 0.5, y: 1.8, z: 0, size: 0.5 },{ x: 1.5, y: 2.2, z: -0.1, size: 0.5 }], lines: [[0,4], [4,1], [1,2], [2,3], [1,5], [5,6]], position: { forward: 10, right: -4, up: 2 } },
-    { name: "Libra", stars: [{ x: 0, y: 0, z: 0, size: 0.6 },{ x: -1.2, y: 1.5, z: 0.1, size: 0.6 },{ x: 1.0, y: 1.2, z: -0.1, size: 0.55 },{ x: -0.8, y: 2.8, z: 0, size: 0.5 },{ x: 0.6, y: 2.5, z: 0.1, size: 0.5 }], lines: [[0,1], [0,2], [1,3], [2,4]], position: { forward: 4, right: -14, up: 0 } },
-    { name: "Sagittarius", stars: [{ x: 0, y: 0, z: 0, size: 0.65 },{ x: 0.3, y: 1.2, z: 0.1, size: 0.6 },{ x: 0.8, y: 2.0, z: 0, size: 0.55 },{ x: -0.8, y: 0.5, z: -0.1, size: 0.55 },{ x: -0.3, y: 1.5, z: 0.1, size: 0.5 },{ x: -1.0, y: 1.2, z: 0, size: 0.55 },{ x: -0.5, y: -0.5, z: -0.1, size: 0.5 },{ x: 1.2, y: 0.8, z: 0.1, size: 0.55 }], lines: [[0,1], [1,2], [2,4], [4,5], [5,0], [3,5], [3,0], [3,6], [1,7]], position: { forward: 17, right: 8, up: -2 } },
+    // 射手座放在进门近处用于测试（forward: 3）
+    { name: "Sagittarius", stars: [{ x: 0, y: 0, z: 0, size: 0.65 },{ x: 0.3, y: 1.2, z: 0.1, size: 0.6 },{ x: 0.8, y: 2.0, z: 0, size: 0.55 },{ x: -0.8, y: 0.5, z: -0.1, size: 0.55 },{ x: -0.3, y: 1.5, z: 0.1, size: 0.5 },{ x: -1.0, y: 1.2, z: 0, size: 0.55 },{ x: -0.5, y: -0.5, z: -0.1, size: 0.5 },{ x: 1.2, y: 0.8, z: 0.1, size: 0.55 }], lines: [[0,1], [1,2], [2,4], [4,5], [5,0], [3,5], [3,0], [3,6], [1,7]], position: { forward: 3, right: 2, up: 1 } },
     
-    // 远处4个 (forward 30-50, right -30~50, up -5~5)
-    { name: "Scorpius", stars: [{ x: 0, y: 0, z: 0, size: 0.9 },{ x: -1.5, y: 1.5, z: 0.1, size: 0.55 },{ x: -0.5, y: 1.8, z: 0, size: 0.55 },{ x: 0.5, y: 2.0, z: -0.1, size: 0.5 },{ x: -0.3, y: 0.8, z: 0.1, size: 0.5 },{ x: 0.5, y: -0.8, z: 0, size: 0.5 },{ x: 1.2, y: -1.5, z: -0.1, size: 0.5 },{ x: 2.0, y: -1.2, z: 0.1, size: 0.5 },{ x: 2.5, y: -1.0, z: 0, size: 0.45 },{ x: 2.8, y: -1.8, z: -0.1, size: 0.5 },{ x: 3.2, y: -2.2, z: 0.1, size: 0.45 },{ x: 3.6, y: -2.6, z: 0, size: 0.45 },{ x: 4.0, y: -2.2, z: -0.1, size: 0.55 },{ x: 4.2, y: -1.8, z: 0.1, size: 0.5 }], lines: [[1,2], [2,3], [2,4], [4,0], [0,5], [5,6], [6,7], [7,8], [7,9], [9,10], [10,11], [11,12], [12,13]], position: { forward: 35, right: -28, up: 3 } },
-    { name: "Capricornus", stars: [{ x: 0, y: 0, z: 0, size: 0.55 },{ x: 2.0, y: 0.3, z: 0.1, size: 0.55 },{ x: 0.5, y: -0.8, z: 0, size: 0.45 },{ x: 0.8, y: -1.5, z: -0.1, size: 0.45 },{ x: 1.5, y: -1.8, z: 0.1, size: 0.5 },{ x: 2.5, y: -1.2, z: 0, size: 0.55 },{ x: 3.0, y: -0.5, z: -0.1, size: 0.55 },{ x: 2.0, y: -1.0, z: 0.1, size: 0.45 },{ x: 2.5, y: 0, z: 0, size: 0.45 }], lines: [[0,1], [0,2], [2,3], [3,4], [4,5], [5,6], [1,8], [8,7], [7,4]], position: { forward: 45, right: 42, up: -3 } },
-    { name: "Aquarius", stars: [{ x: 0, y: 2.0, z: 0, size: 0.6 },{ x: -1.2, y: 1.5, z: 0.1, size: 0.6 },{ x: 0.8, y: 0.5, z: 0, size: 0.55 },{ x: 0.3, y: 1.2, z: -0.1, size: 0.5 },{ x: 0.5, y: 0.8, z: 0.1, size: 0.5 },{ x: 0.2, y: 0, z: 0, size: 0.5 },{ x: 0.8, y: -0.5, z: -0.1, size: 0.55 },{ x: 1.2, y: -1.2, z: 0.1, size: 0.5 },{ x: 1.8, y: -1.5, z: 0, size: 0.45 },{ x: -0.8, y: 2.5, z: -0.1, size: 0.5 }], lines: [[0,1], [0,3], [3,4], [4,2], [2,5], [5,6], [6,7], [7,8], [1,9]], position: { forward: 38, right: 8, up: 5 } },
-    { name: "Pisces", stars: [{ x: 0, y: 0, z: 0, size: 0.55 },{ x: -0.8, y: -0.5, z: 0.1, size: 0.5 },{ x: -1.5, y: -0.8, z: 0, size: 0.5 },{ x: -2.2, y: -0.5, z: -0.1, size: 0.55 },{ x: -2.8, y: -0.2, z: 0.1, size: 0.5 },{ x: -3.2, y: 0.2, z: 0, size: 0.5 },{ x: 0.6, y: 0.5, z: -0.1, size: 0.5 },{ x: 1.2, y: 1.0, z: 0.1, size: 0.55 },{ x: 1.8, y: 1.5, z: 0, size: 0.5 },{ x: 2.4, y: 1.8, z: -0.1, size: 0.5 }], lines: [[0,1], [1,2], [2,3], [3,4], [4,5], [0,6], [6,7], [7,8], [8,9]], position: { forward: 48, right: -18, up: -2 } },
+    // 其他11个星座分散在球体各处，避开天体位置
+    // 前方区域
+    { name: "Aries", stars: [{ x: 0, y: 0, z: 0, size: 0.7 },{ x: -1.0, y: 0.5, z: 0.1, size: 0.55 },{ x: -1.8, y: 1.0, z: 0, size: 0.5 },{ x: 1.2, y: -0.3, z: -0.1, size: 0.45 }], lines: [[2,1], [1,0], [0,3]], position: { forward: 38, right: 30, up: 12 } },
+    
+    { name: "Gemini", stars: [{ x: 0, y: 3.0, z: 0, size: 0.7 },{ x: 1.5, y: 2.8, z: 0.1, size: 0.7 },{ x: 0.1, y: 2.0, z: 0, size: 0.45 },{ x: 1.4, y: 1.8, z: 0.1, size: 0.45 },{ x: 0.2, y: 1.0, z: -0.1, size: 0.5 },{ x: 1.3, y: 0.8, z: 0, size: 0.5 },{ x: 0.3, y: 0, z: 0.1, size: 0.45 },{ x: 1.2, y: -0.2, z: -0.1, size: 0.45 },{ x: 0.4, y: -1.0, z: 0, size: 0.45 },{ x: 1.1, y: -1.2, z: 0.1, size: 0.55 }], lines: [[0,2], [2,4], [4,6], [6,8], [1,3], [3,5], [5,7], [7,9]], position: { forward: 42, right: -8, up: 8 } },
+    
+    // 左侧区域
+    { name: "Taurus", stars: [{ x: 0, y: 0, z: 0, size: 0.8 },{ x: -3.0, y: 1.5, z: 0.1, size: 0.6 },{ x: 0.5, y: -1.0, z: 0, size: 0.5 },{ x: -0.8, y: 0.8, z: -0.1, size: 0.5 },{ x: -0.3, y: 0.5, z: 0.1, size: 0.5 },{ x: -1.5, y: 1.0, z: 0, size: 0.5 },{ x: -2.2, y: 2.0, z: -0.1, size: 0.5 }], lines: [[0,3], [0,4], [3,4], [4,5], [5,1], [5,6], [0,2]], position: { forward: 20, right: -40, up: 5 } },
+    
+    { name: "Leo", stars: [{ x: 0, y: 0, z: 0, size: 0.85 },{ x: -0.8, y: 1.5, z: 0.1, size: 0.55 },{ x: 0.5, y: 1.0, z: 0, size: 0.6 },{ x: 1.8, y: 2.0, z: -0.1, size: 0.5 },{ x: 0.3, y: 2.2, z: 0.1, size: 0.5 },{ x: -0.5, y: 2.8, z: 0, size: 0.5 },{ x: 1.5, y: 0.8, z: -0.1, size: 0.55 },{ x: 2.5, y: 0.5, z: 0.1, size: 0.5 },{ x: 3.5, y: 0, z: 0, size: 0.6 }], lines: [[0,1], [1,5], [5,4], [4,3], [1,2], [2,6], [6,7], [7,8], [2,0]], position: { forward: 35, right: -25, up: 18 } },
+    
+    // 右侧区域
+    { name: "Cancer", stars: [{ x: 0, y: 0, z: 0, size: 0.55 },{ x: 0.5, y: -1.5, z: 0.1, size: 0.6 },{ x: -1.0, y: 0.8, z: 0, size: 0.5 },{ x: 0.8, y: 0.6, z: -0.1, size: 0.5 },{ x: -0.5, y: 1.5, z: 0.1, size: 0.45 }], lines: [[0,1], [0,2], [0,3], [2,4], [3,4]], position: { forward: 18, right: 35, up: 2 } },
+    
+    { name: "Virgo", stars: [{ x: 0, y: 0, z: 0, size: 0.85 },{ x: -0.8, y: 1.5, z: 0.1, size: 0.55 },{ x: -0.5, y: 2.5, z: 0, size: 0.5 },{ x: 0, y: 3.5, z: -0.1, size: 0.55 },{ x: -1.5, y: 1.0, z: 0.1, size: 0.5 },{ x: 0.5, y: 1.8, z: 0, size: 0.5 },{ x: 1.5, y: 2.2, z: -0.1, size: 0.5 }], lines: [[0,4], [4,1], [1,2], [2,3], [1,5], [5,6]], position: { forward: 28, right: 42, up: 8 } },
+    
+    // 上方区域（避开金星位置 forward:15, right:8, up:12）
+    { name: "Libra", stars: [{ x: 0, y: 0, z: 0, size: 0.6 },{ x: -1.2, y: 1.5, z: 0.1, size: 0.6 },{ x: 1.0, y: 1.2, z: -0.1, size: 0.55 },{ x: -0.8, y: 2.8, z: 0, size: 0.5 },{ x: 0.6, y: 2.5, z: 0.1, size: 0.5 }], lines: [[0,1], [0,2], [1,3], [2,4]], position: { forward: 40, right: 5, up: 20 } },
+    
+    // 下方区域
+    { name: "Scorpius", stars: [{ x: 0, y: 0, z: 0, size: 0.9 },{ x: -1.5, y: 1.5, z: 0.1, size: 0.55 },{ x: -0.5, y: 1.8, z: 0, size: 0.55 },{ x: 0.5, y: 2.0, z: -0.1, size: 0.5 },{ x: -0.3, y: 0.8, z: 0.1, size: 0.5 },{ x: 0.5, y: -0.8, z: 0, size: 0.5 },{ x: 1.2, y: -1.5, z: -0.1, size: 0.5 },{ x: 2.0, y: -1.2, z: 0.1, size: 0.5 },{ x: 2.5, y: -1.0, z: 0, size: 0.45 },{ x: 2.8, y: -1.8, z: -0.1, size: 0.5 },{ x: 3.2, y: -2.2, z: 0.1, size: 0.45 },{ x: 3.6, y: -2.6, z: 0, size: 0.45 },{ x: 4.0, y: -2.2, z: -0.1, size: 0.55 },{ x: 4.2, y: -1.8, z: 0.1, size: 0.5 }], lines: [[1,2], [2,3], [2,4], [4,0], [0,5], [5,6], [6,7], [7,8], [7,9], [9,10], [10,11], [11,12], [12,13]], position: { forward: 30, right: -35, up: -8 } },
+    
+    // 后方区域（避开太阳位置 forward:-55, right:25）
+    { name: "Capricornus", stars: [{ x: 0, y: 0, z: 0, size: 0.55 },{ x: 2.0, y: 0.3, z: 0.1, size: 0.55 },{ x: 0.5, y: -0.8, z: 0, size: 0.45 },{ x: 0.8, y: -1.5, z: -0.1, size: 0.45 },{ x: 1.5, y: -1.8, z: 0.1, size: 0.5 },{ x: 2.5, y: -1.2, z: 0, size: 0.55 },{ x: 3.0, y: -0.5, z: -0.1, size: 0.55 },{ x: 2.0, y: -1.0, z: 0.1, size: 0.45 },{ x: 2.5, y: 0, z: 0, size: 0.45 }], lines: [[0,1], [0,2], [2,3], [3,4], [4,5], [5,6], [1,8], [8,7], [7,4]], position: { forward: -20, right: -30, up: 5 } },
+    
+    { name: "Aquarius", stars: [{ x: 0, y: 2.0, z: 0, size: 0.6 },{ x: -1.2, y: 1.5, z: 0.1, size: 0.6 },{ x: 0.8, y: 0.5, z: 0, size: 0.55 },{ x: 0.3, y: 1.2, z: -0.1, size: 0.5 },{ x: 0.5, y: 0.8, z: 0.1, size: 0.5 },{ x: 0.2, y: 0, z: 0, size: 0.5 },{ x: 0.8, y: -0.5, z: -0.1, size: 0.55 },{ x: 1.2, y: -1.2, z: 0.1, size: 0.5 },{ x: 1.8, y: -1.5, z: 0, size: 0.45 },{ x: -0.8, y: 2.5, z: -0.1, size: 0.5 }], lines: [[0,1], [0,3], [3,4], [4,2], [2,5], [5,6], [6,7], [7,8], [1,9]], position: { forward: -35, right: 0, up: 15 } },
+    
+    { name: "Pisces", stars: [{ x: 0, y: 0, z: 0, size: 0.55 },{ x: -0.8, y: -0.5, z: 0.1, size: 0.5 },{ x: -1.5, y: -0.8, z: 0, size: 0.5 },{ x: -2.2, y: -0.5, z: -0.1, size: 0.55 },{ x: -2.8, y: -0.2, z: 0.1, size: 0.5 },{ x: -3.2, y: 0.2, z: 0, size: 0.5 },{ x: 0.6, y: 0.5, z: -0.1, size: 0.5 },{ x: 1.2, y: 1.0, z: 0.1, size: 0.55 },{ x: 1.8, y: 1.5, z: 0, size: 0.5 },{ x: 2.4, y: 1.8, z: -0.1, size: 0.5 }], lines: [[0,1], [1,2], [2,3], [3,4], [4,5], [0,6], [6,7], [7,8], [8,9]], position: { forward: -15, right: 40, up: -5 } },
   ];
 }
 
@@ -1083,8 +1149,8 @@ function createConstellation(data) {
     const starMat = new THREE.SpriteMaterial({ map: star01PngTexture, color: new THREE.Color(1, 0.98, 0.9), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
     const sprite = new THREE.Sprite(starMat);
     sprite.position.set(star.x, star.y, star.z);
-    sprite.scale.setScalar(star.size * 0.85);
-    sprite.userData = { baseMat: starMat, baseSize: star.size * 0.85 };
+    sprite.scale.setScalar(star.size * 1.0);
+    sprite.userData = { baseMat: starMat, baseSize: star.size * 1.0 };
     group.add(sprite);
     starMeshes.push(sprite);
   });
@@ -1100,7 +1166,7 @@ function createConstellation(data) {
   group.userData.starMeshes = starMeshes;
   group.userData.lineMeshes = lineMeshes;
   group.userData.relPos = data.position;
-  group.scale.setScalar(1.2);
+  group.scale.setScalar(1.5);
   return group;
 }
 
@@ -1131,16 +1197,21 @@ function checkConstellationDiscovery() {
   const xrCam = renderer.xr.getCamera(camera);
   xrCam.getWorldPosition(_camPos);
   const camDir = new THREE.Vector3(0, 0, -1).applyQuaternion(xrCam.quaternion);
+  
   constellationGroups.forEach((group) => {
     const name = group.userData.name;
     const state = constellationStates.get(name) || 'undiscovered';
     const dist = _camPos.distanceTo(group.position);
     const toConstellation = group.position.clone().sub(_camPos).normalize();
     const dot = camDir.dot(toConstellation);
+    
     if (state === 'undiscovered') {
-      if (dot > 0.75 && dist < 40) { constellationStates.set(name, 'discovered'); group.userData.discoveredTime = performance.now(); }
+      if (dot > 0.75 && dist < 45) { 
+        constellationStates.set(name, 'discovered'); 
+        group.userData.discoveredTime = performance.now(); 
+      }
     } else if (state === 'discovered') {
-      if (dist < 6) { 
+      if (dist < 8) { 
         constellationStates.set(name, 'named'); 
         showConstellationName(group); 
         collectedCount++;
@@ -1154,7 +1225,7 @@ function showConstellationName(group) {
   const name = group.userData.name;
   const label = createConstellationLabel(name);
   label.sprite.position.copy(group.position);
-  label.sprite.position.y += 2.5;
+  label.sprite.position.y += 3.5;
   scene.add(label.sprite);
   label.fadeState = 'fadeIn';
   label.fadeTime = 0;
@@ -1173,7 +1244,7 @@ function updateConstellationLabels(delta) {
       label.mat.opacity = Math.max(0, 1 - label.fadeTime * 0.4);
       if (label.mat.opacity <= 0) { scene.remove(label.sprite); constellationLabels.splice(i, 1); }
     }
-    if (label.groupRef) { label.sprite.position.copy(label.groupRef.position); label.sprite.position.y += 2.5; }
+    if (label.groupRef) { label.sprite.position.copy(label.groupRef.position); label.sprite.position.y += 3.5; }
   }
 }
 
@@ -1181,18 +1252,30 @@ function updateConstellations(time, opacity) {
   constellationGroups.forEach((group) => {
     const name = group.userData.name;
     const state = constellationStates.get(name) || 'undiscovered';
-    let brightnessMult = 1, lineBrightness = 0.2;
-    if (state === 'undiscovered') { brightnessMult = 0.3; lineBrightness = 0.05; }
-    else if (state === 'discovered') {
+    let brightnessMult = 1, lineBrightness = 0.25;
+    
+    if (state === 'undiscovered') { 
+      brightnessMult = 0.4; 
+      lineBrightness = 0.08; 
+    } else if (state === 'discovered') {
       const elapsed = (performance.now() - (group.userData.discoveredTime || 0)) / 1000;
       const breath = 0.6 + 0.4 * Math.sin(elapsed * 2.5);
-      brightnessMult = 1.2 * breath; lineBrightness = 0.4 * breath;
+      brightnessMult = 1.4 * breath; 
+      lineBrightness = 0.5 * breath;
+    } else if (state === 'named') {
+      brightnessMult = 1.2;
+      lineBrightness = 0.4;
     }
+    
     group.userData.starMeshes.forEach((star, idx) => {
-      const twinkle = 0.7 + 0.3 * Math.sin(time * 1.5 + idx * 0.5 + star.position.x);
-      star.userData.baseMat.opacity = opacity * twinkle * brightnessMult;
+      // 更强的闪烁效果
+      const twinkle = 0.5 + 0.5 * Math.sin(time * 2.5 + idx * 0.8 + star.position.x * 2);
+      const extraSparkle = Math.random() > 0.98 ? 1.5 : 1;
+      star.userData.baseMat.opacity = opacity * twinkle * brightnessMult * extraSparkle;
     });
-    group.userData.lineMeshes.forEach((line) => { line.material.opacity = opacity * lineBrightness; });
+    group.userData.lineMeshes.forEach((line) => { 
+      line.material.opacity = opacity * lineBrightness; 
+    });
   });
 }
 
@@ -1252,10 +1335,10 @@ function updatePlanetGlows(camPos) {
   // Moon glow
   if (moonMesh && moonGlow) {
     const dist = camPos.distanceTo(moonMesh.position);
-    const targetOpacity = dist < 5 ? 0.8 : (dist < 10 ? 0.4 * (1 - (dist - 5) / 5) : 0);
+    const targetOpacity = dist < 5 ? 0.9 : (dist < 12 ? 0.5 * (1 - (dist - 5) / 7) : 0);
     moonGlow.material.opacity += (targetOpacity - moonGlow.material.opacity) * 0.05;
     moonGlow.position.copy(moonMesh.position);
-    const glowScale = 10 + (dist < 5 ? (5 - dist) * 2 : 0);
+    const glowScale = 12 + (dist < 5 ? (5 - dist) * 3 : 0);
     moonGlow.scale.setScalar(glowScale);
   }
   
@@ -1296,21 +1379,15 @@ function updatePlanetGlows(camPos) {
     sunExtraGlow.material.opacity += (targetOpacity - sunExtraGlow.material.opacity) * 0.05;
     sunExtraGlow.position.copy(sunMesh.position);
   }
-}
-
-// ============ 静止检测 ============
-function checkStillness(camPos, delta) {
-  const moveDistance = camPos.distanceTo(lastCamPos);
-  lastCamPos.copy(camPos);
   
-  if (moveDistance < 0.02) {
-    stillTime += delta;
-    if (stillTime >= 10 && !starsAttracted) {
-      starsAttracted = true;
-    }
-  } else {
-    stillTime = 0;
-    starsAttracted = false;
+  // Venus glow
+  if (venusMesh && venusGlow) {
+    const dist = camPos.distanceTo(venusMesh.position);
+    const targetOpacity = dist < 5 ? 0.8 : (dist < 10 ? 0.4 * (1 - (dist - 5) / 5) : 0);
+    venusGlow.material.opacity += (targetOpacity - venusGlow.material.opacity) * 0.05;
+    venusGlow.position.copy(venusMesh.position);
+    const glowScale = 6 + (dist < 5 ? (5 - dist) * 1.5 : 0);
+    venusGlow.scale.setScalar(glowScale);
   }
 }
 
@@ -1400,15 +1477,21 @@ function build() {
   // 银河漩涡
   galaxySprite = createGalaxySprite();
   scene.add(galaxySprite);
+  
+  galaxyOrbitData = createGalaxyOrbitStars(200);
+  galaxyOrbitStars = galaxyOrbitData.points;
+  scene.add(galaxyOrbitStars);
 
+  // Moon
   const moonGeo = new THREE.SphereGeometry(4, 64, 64);
   moonMesh = new THREE.Mesh(moonGeo, new THREE.MeshBasicMaterial({ color: 0xdddddd, transparent: true, opacity: 0 }));
   moonMesh.renderOrder = 10;
   scene.add(moonMesh);
   
-  moonGlow = createPlanetGlow("rgba(220, 230, 255, 1)", 10);
+  moonGlow = createPlanetGlow("rgba(220, 230, 255, 1)", 12);
   scene.add(moonGlow);
 
+  // Jupiter
   const jupiterGeo = new THREE.SphereGeometry(7, 64, 64);
   jupiterMesh = new THREE.Mesh(jupiterGeo, new THREE.MeshBasicMaterial({ color: 0xddaa77, transparent: true, opacity: 0 }));
   jupiterMesh.renderOrder = 10;
@@ -1417,6 +1500,7 @@ function build() {
   jupiterGlow = createPlanetGlow("rgba(221, 170, 119, 1)", 16);
   scene.add(jupiterGlow);
 
+  // Mars
   const marsGeo = new THREE.SphereGeometry(3, 64, 64);
   marsMesh = new THREE.Mesh(marsGeo, new THREE.MeshBasicMaterial({ color: 0xdd6644, transparent: true, opacity: 0 }));
   marsMesh.renderOrder = 10;
@@ -1425,6 +1509,7 @@ function build() {
   marsGlow = createPlanetGlow("rgba(221, 102, 68, 1)", 8);
   scene.add(marsGlow);
 
+  // Saturn
   const saturnGeo = new THREE.SphereGeometry(5, 64, 64);
   saturnMesh = new THREE.Mesh(saturnGeo, new THREE.MeshBasicMaterial({ color: 0xddcc88, transparent: true, opacity: 0 }));
   saturnMesh.renderOrder = 10;
@@ -1449,6 +1534,7 @@ function build() {
   saturnRingMesh.renderOrder = 11;
   scene.add(saturnRingMesh);
 
+  // Sun
   const sunGeo = new THREE.SphereGeometry(8, 64, 64);
   sunMesh = new THREE.Mesh(sunGeo, new THREE.MeshBasicMaterial({ color: 0xffdd88, transparent: true, opacity: 0 }));
   sunMesh.renderOrder = 10;
@@ -1464,12 +1550,23 @@ function build() {
   sunExtraGlow = createPlanetGlow("rgba(255, 238, 170, 1)", 60);
   scene.add(sunExtraGlow);
 
+  // Venus (新增)
+  const venusGeo = new THREE.SphereGeometry(2.5, 64, 64);
+  venusMesh = new THREE.Mesh(venusGeo, new THREE.MeshBasicMaterial({ color: 0xeeddaa, transparent: true, opacity: 0 }));
+  venusMesh.renderOrder = 10;
+  scene.add(venusMesh);
+  
+  venusGlow = createPlanetGlow("rgba(238, 221, 170, 1)", 6);
+  scene.add(venusGlow);
+
+  // 加载贴图
   texLoader.load(`${BASE}textures/moon.jpg`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; moonMesh.material.map = tex; moonMesh.material.color.set(0xffffff); moonMesh.material.needsUpdate = true; });
   texLoader.load(`${BASE}textures/earth.jpg`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; jupiterMesh.material.map = tex; jupiterMesh.material.color.set(0xffffff); jupiterMesh.material.needsUpdate = true; });
   texLoader.load(`${BASE}textures/mars.jpg`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; marsMesh.material.map = tex; marsMesh.material.color.set(0xffffff); marsMesh.material.needsUpdate = true; });
   texLoader.load(`${BASE}textures/saturn.jpg`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; saturnMesh.material.map = tex; saturnMesh.material.color.set(0xffffff); saturnMesh.material.needsUpdate = true; });
   texLoader.load(`${BASE}textures/saturn_ring.png`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; saturnRingMesh.material.map = tex; saturnRingMesh.material.needsUpdate = true; });
   texLoader.load(`${BASE}textures/sun.jpg`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; sunMesh.material.map = tex; sunMesh.material.color.set(0xffffff); sunMesh.material.needsUpdate = true; });
+  texLoader.load(`${BASE}textures/venus.jpg`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; venusMesh.material.map = tex; venusMesh.material.color.set(0xffffff); venusMesh.material.needsUpdate = true; });
 
   const constellationsData = getConstellationsData();
   constellationsData.forEach((data) => {
@@ -1514,12 +1611,6 @@ function onSelect() {
   guideMeteorTriggered = false;
   reticle.visible = false;
   
-  lastCamPos.copy(_camPos);
-  stillTime = 0;
-  starsAttracted = false;
-  galaxyVisible = false;
-  galaxyOpacity = 0;
-  galaxyScale = 0;
   collectedCount = 0;
   updateCollectionUI();
 
@@ -1560,6 +1651,7 @@ function updateTransition(xrCam, delta) {
   if (saturnRingMesh) saturnRingMesh.material.opacity = smooth * 0.85;
   if (sunMesh) sunMesh.material.opacity = smooth;
   if (sunGlowSprite) sunGlowSprite.material.opacity = smooth * 0.6;
+  if (venusMesh) venusMesh.material.opacity = smooth;
   
   easterEggs.forEach(egg => { egg.userData.spriteMat.opacity = smooth * 0.3; });
   updateConstellations(performance.now() / 1000, smooth);
@@ -1612,6 +1704,14 @@ function updateCelestialBodies(time, delta) {
       sunGlowSprite.scale.set(glowScale, glowScale, 1);
     }
   }
+  // Venus - 在用户上方偏前偏右
+  if (venusMesh) {
+    const venusPos = doorPlanePoint.clone().addScaledVector(doorForward, 15).addScaledVector(doorRight, 8);
+    venusPos.y = doorPlanePoint.y + 12;
+    venusMesh.position.copy(venusPos);
+    venusMesh.rotation.y += delta * 0.06;
+  }
+  
   constellationGroups.forEach((group) => {
     const rel = group.userData.relPos;
     const pos = doorPlanePoint.clone().addScaledVector(doorForward, rel.forward).addScaledVector(doorRight, rel.right);
@@ -1670,18 +1770,13 @@ function render(_, frame) {
     updateSpaceStars(spaceStarData, time);
     
     xrCam.getWorldPosition(_camPos);
-    updateNearbyStars(nearbyStarData, time, _camPos, delta);
+    updateNearbyStars(nearbyStarData, time, _camPos);
     
     // 银河漩涡
-    updateGalaxy(xrCam, delta, time);
+    updateGalaxy(time, delta);
     
     // 星球光晕
     updatePlanetGlows(_camPos);
-    
-    // 静止检测
-    if (isInside) {
-      checkStillness(_camPos, delta);
-    }
     
     // 引导流星 (进门10秒后)
     if (!guideMeteorTriggered && isInside && (now - placedTime) >= 10000) {
@@ -1713,11 +1808,6 @@ function reset() {
   constellationStates.clear();
   lastWishTriggerTime = 0;
   collectedCount = 0;
-  stillTime = 0;
-  starsAttracted = false;
-  galaxyVisible = false;
-  galaxyOpacity = 0;
-  galaxyScale = 0;
   
   if (collectionUI) collectionUI.style.opacity = "0";
   
@@ -1741,6 +1831,7 @@ function reset() {
   if (nearbyStars) { scene.remove(nearbyStars); nearbyStars = null; }
   if (spaceStars) { scene.remove(spaceStars); spaceStars = null; }
   if (galaxySprite) { scene.remove(galaxySprite); galaxySprite = null; }
+  if (galaxyOrbitStars) { scene.remove(galaxyOrbitStars); galaxyOrbitStars = null; }
   if (moonMesh) { scene.remove(moonMesh); moonMesh = null; }
   if (moonGlow) { scene.remove(moonGlow); moonGlow = null; }
   if (jupiterMesh) { scene.remove(jupiterMesh); jupiterMesh = null; }
@@ -1753,11 +1844,14 @@ function reset() {
   if (sunMesh) { scene.remove(sunMesh); sunMesh = null; }
   if (sunGlowSprite) { scene.remove(sunGlowSprite); sunGlowSprite = null; }
   if (sunExtraGlow) { scene.remove(sunExtraGlow); sunExtraGlow = null; }
+  if (venusMesh) { scene.remove(venusMesh); venusMesh = null; }
+  if (venusGlow) { scene.remove(venusGlow); venusGlow = null; }
   constellationGroups.forEach(g => scene.remove(g));
   constellationGroups = [];
   easterEggs.forEach(egg => scene.remove(egg));
   easterEggs = [];
   nebulaPortal = null; ambientStars = null; portalMask = null;
   starData = null; floatingStarData = null; brightStarData = null; ambientStarData = null; spaceStarData = null; nearbyStarData = null;
+  galaxyOrbitData = null;
   reticle.visible = false;
 }
