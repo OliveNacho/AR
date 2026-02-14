@@ -12,14 +12,20 @@
     <style>
       html, body { margin: 0; padding: 0; overflow: hidden; background: #000; }
       #hint {
-        position: fixed; left: 50%; top: 40dvh; transform: translateX(-50%);
+        position: fixed; 
+        left: 50%; 
+        top: 40dvh; 
+        transform: translateX(-50%);
+        white-space: nowrap;
         color: rgba(255,255,255,.92); 
-        font: 14px/2 system-ui, -apple-system, Segoe UI, Roboto;
+        font-size: clamp(12px, 3.5vw, 18px);
+        line-height: 1.4;
+        font-family:system-ui, -apple-system, Segoe UI, Roboto;
         padding: 10px 12px; 
         border-radius: 12px;
         background: rgba(0,0,0,.35); 
         backdrop-filter: blur(8px);
-        max-width: min(92vw, 600px); 
+        max-width: min(92vw, 520px); 
         text-align: center;
         transition: opacity 0.8s ease;
         pointer-events: none;
@@ -58,7 +64,7 @@
         hintEl.style.opacity = '0';
 
         setTimeout(() => {
-          hintEl.innerHTML = "<span class='highlight-norm'> Created by </span> <span class='highlight-name'>Olive</span>";
+          hintEl.innerHTML = "<span class='highlight-norm'> Created by </span> <span class='highlight-name'> Olive</span>";
           hintEl.style.opacity = '1';
 
           setTimeout(() => {
