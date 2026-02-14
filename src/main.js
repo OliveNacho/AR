@@ -626,7 +626,7 @@ function updateGalaxy(time, delta) {
   // 银河漩涡位置：进门后左侧远处
   const galaxyPos = doorPlanePoint.clone()
     .addScaledVector(doorForward, 6)
-    .addScaledVector(doorRight, -70);
+    .addScaledVector(doorRight, -100);
   galaxyPos.y = doorPlanePoint.y + 12;
   
   galaxySprite.position.copy(galaxyPos);
@@ -1062,7 +1062,7 @@ function updateMeteors(delta) {
 function getConstellationsData() {
   return [
     // 射手座：进门左侧稍远处
-    { name: "Sagittarius", stars: [{ x: 0, y: 0, z: 0, size: 0.65 },{ x: 0.3, y: 1.2, z: 0.1, size: 0.6 },{ x: 0.8, y: 2.0, z: 0, size: 0.55 },{ x: -0.8, y: 0.5, z: -0.1, size: 0.55 },{ x: -0.3, y: 1.5, z: 0.1, size: 0.5 },{ x: -1.0, y: 1.2, z: 0, size: 0.55 },{ x: -0.5, y: -0.5, z: -0.1, size: 0.5 },{ x: 1.2, y: 0.8, z: 0.1, size: 0.55 }], lines: [[0,1], [1,2], [2,4], [4,5], [5,0], [3,5], [3,0], [3,6], [1,7]], position: { forward: 1, right: -40, up: 18 } },
+    { name: "Sagittarius", stars: [{ x: 0, y: 0, z: 0, size: 0.65 },{ x: 0.3, y: 1.2, z: 0.1, size: 0.6 },{ x: 0.8, y: 2.0, z: 0, size: 0.55 },{ x: -0.8, y: 0.5, z: -0.1, size: 0.55 },{ x: -0.3, y: 1.5, z: 0.1, size: 0.5 },{ x: -1.0, y: 1.2, z: 0, size: 0.55 },{ x: -0.5, y: -0.5, z: -0.1, size: 0.5 },{ x: 1.2, y: 0.8, z: 0.1, size: 0.55 }], lines: [[0,1], [1,2], [2,4], [4,5], [5,0], [3,5], [3,0], [3,6], [1,7]], position: { forward: 1, right: -15, up: 30 } },
     
     // 前方区域
     { name: "Aries", stars: [{ x: 0, y: 0, z: 0, size: 0.7 },{ x: -1.0, y: 0.5, z: 0.1, size: 0.55 },{ x: -1.8, y: 1.0, z: 0, size: 0.5 },{ x: 1.2, y: -0.3, z: -0.1, size: 0.45 }], lines: [[2,1], [1,0], [0,3]], position: { forward: 38, right: 30, up: 12 } },
@@ -1249,8 +1249,8 @@ function createNebulaPortal() {
 function createEasterEggs() {
   const eggs = [];
   const eggData = [
-    { text: "Z", relPos: { forward: 2, right: 0, up: 1 } },
-    { text: "X", relPos: { forward: 30, right: 20, up: -1 } },
+    { text: "Z", relPos: { forward: 25, right: -18, up: 6 } },
+    { text: "X", relPos: { forward: 17, right: 20, up: -1 } },
     { text: "D", relPos: { forward: 35, right: 0, up: 12 } },
     { text: "♥", relPos: { forward: -19, right: 9, up: 7 } },
   ];
@@ -1258,8 +1258,8 @@ function createEasterEggs() {
     const canvas = document.createElement("canvas");
     canvas.width = 256; canvas.height = 64;
     const ctx = canvas.getContext("2d");
-    ctx.font = "80px Cinzel, Georgia, serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillStyle = "rgb(255, 255, 255)";
+    ctx.font = "18px Cinzel, Georgia, serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillStyle = "rgba(180, 180, 200, 0.3)";
     ctx.fillText(egg.text, 128, 32);
     const texture = new THREE.CanvasTexture(canvas);
     const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 0, depthWrite: false });
@@ -1568,7 +1568,7 @@ function updateCelestialBodies(time, delta) {
     marsMesh.rotation.y += delta * 0.04;
   }
   if (saturnMesh) {
-    const saturnPos = doorPlanePoint.clone().addScaledVector(doorForward, -15).addScaledVector(doorRight, -15);
+    const saturnPos = doorPlanePoint.clone().addScaledVector(doorForward, -25).addScaledVector(doorRight, -15);
     saturnPos.y = doorPlanePoint.y + 10;
     saturnMesh.position.copy(saturnPos);
     saturnMesh.rotation.y += delta * 0.015;
@@ -1578,7 +1578,7 @@ function updateCelestialBodies(time, delta) {
     }
   }
   if (sunMesh) {
-    const sunPos = doorPlanePoint.clone().addScaledVector(doorForward, -75).addScaledVector(doorRight, 25);
+    const sunPos = doorPlanePoint.clone().addScaledVector(doorForward, -75).addScaledVector(doorRight, 35);
     sunPos.y = doorPlanePoint.y + 18;
     sunMesh.position.copy(sunPos);
     sunMesh.rotation.y += delta * 0.01;
