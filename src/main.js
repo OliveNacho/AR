@@ -625,8 +625,8 @@ function updateGalaxy(time, delta) {
   
   // 银河漩涡位置：进门后左侧远处
   const galaxyPos = doorPlanePoint.clone()
-    .addScaledVector(doorForward, 25)
-    .addScaledVector(doorRight, -40);
+    .addScaledVector(doorForward, 8)
+    .addScaledVector(doorRight, -50);
   galaxyPos.y = doorPlanePoint.y + 12;
   
   galaxySprite.position.copy(galaxyPos);
@@ -1062,7 +1062,7 @@ function updateMeteors(delta) {
 function getConstellationsData() {
   return [
     // 射手座：进门左侧稍远处
-    { name: "Sagittarius", stars: [{ x: 0, y: 0, z: 0, size: 0.65 },{ x: 0.3, y: 1.2, z: 0.1, size: 0.6 },{ x: 0.8, y: 2.0, z: 0, size: 0.55 },{ x: -0.8, y: 0.5, z: -0.1, size: 0.55 },{ x: -0.3, y: 1.5, z: 0.1, size: 0.5 },{ x: -1.0, y: 1.2, z: 0, size: 0.55 },{ x: -0.5, y: -0.5, z: -0.1, size: 0.5 },{ x: 1.2, y: 0.8, z: 0.1, size: 0.55 }], lines: [[0,1], [1,2], [2,4], [4,5], [5,0], [3,5], [3,0], [3,6], [1,7]], position: { forward: 12, right: -15, up: 2 } },
+    { name: "Sagittarius", stars: [{ x: 0, y: 0, z: 0, size: 0.65 },{ x: 0.3, y: 1.2, z: 0.1, size: 0.6 },{ x: 0.8, y: 2.0, z: 0, size: 0.55 },{ x: -0.8, y: 0.5, z: -0.1, size: 0.55 },{ x: -0.3, y: 1.5, z: 0.1, size: 0.5 },{ x: -1.0, y: 1.2, z: 0, size: 0.55 },{ x: -0.5, y: -0.5, z: -0.1, size: 0.5 },{ x: 1.2, y: 0.8, z: 0.1, size: 0.55 }], lines: [[0,1], [1,2], [2,4], [4,5], [5,0], [3,5], [3,0], [3,6], [1,7]], position: { forward: 3, right: -20, up: 8 } },
     
     // 前方区域
     { name: "Aries", stars: [{ x: 0, y: 0, z: 0, size: 0.7 },{ x: -1.0, y: 0.5, z: 0.1, size: 0.55 },{ x: -1.8, y: 1.0, z: 0, size: 0.5 },{ x: 1.2, y: -0.3, z: -0.1, size: 0.45 }], lines: [[2,1], [1,0], [0,3]], position: { forward: 38, right: 30, up: 12 } },
@@ -1249,15 +1249,16 @@ function createNebulaPortal() {
 function createEasterEggs() {
   const eggs = [];
   const eggData = [
-    { text: "Ad Astra", relPos: { forward: 25, right: -18, up: 8 } },
-    { text: "Dream", relPos: { forward: 30, right: 20, up: -1 } },
-    { text: "✦", relPos: { forward: 35, right: 0, up: 12 } },
+    { text: "Z", relPos: { forward: 25, right: -18, up: 3 } },
+    { text: "X", relPos: { forward: 30, right: 20, up: -1 } },
+    { text: "D", relPos: { forward: 35, right: 0, up: 12 } },
+    { text: "♥", relPos: { forward: -19, right: 9, up: 7 } },
   ];
   eggData.forEach((egg) => {
     const canvas = document.createElement("canvas");
     canvas.width = 256; canvas.height = 64;
     const ctx = canvas.getContext("2d");
-    ctx.font = "24px Cinzel, Georgia, serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.font = "18px Cinzel, Georgia, serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
     ctx.fillStyle = "rgba(180, 180, 200, 0.3)";
     ctx.fillText(egg.text, 128, 32);
     const texture = new THREE.CanvasTexture(canvas);
