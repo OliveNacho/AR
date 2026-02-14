@@ -625,8 +625,8 @@ function updateGalaxy(time, delta) {
   if (!galaxySprite || !placed) return;
   
   const galaxyPos = doorPlanePoint.clone()
-    .addScaledVector(doorForward, 5)
-    .addScaledVector(doorRight, -200);
+    .addScaledVector(doorForward, -200)
+    .addScaledVector(doorRight, 0);
   galaxyPos.y = doorPlanePoint.y + 12;
   
   galaxySprite.position.copy(galaxyPos);
@@ -1535,13 +1535,13 @@ function updateCelestialBodies(time, delta) {
     moonMesh.rotation.y += delta * 0.05;
   }
   if (jupiterMesh) {
-    const jupiterPos = doorPlanePoint.clone().addScaledVector(doorForward, 28).addScaledVector(doorRight, 45);
+    const jupiterPos = doorPlanePoint.clone().addScaledVector(doorForward, 25).addScaledVector(doorRight, 35);
     jupiterPos.y = doorPlanePoint.y + 5;
     jupiterMesh.position.copy(jupiterPos);
     jupiterMesh.rotation.y += delta * 0.03;
   }
   if (marsMesh) {
-    const marsPos = doorPlanePoint.clone().addScaledVector(doorForward, 25).addScaledVector(doorRight, 5);
+    const marsPos = doorPlanePoint.clone().addScaledVector(doorForward, 35).addScaledVector(doorRight, 5);
     marsPos.y = doorPlanePoint.y - 8;
     marsMesh.position.copy(marsPos);
     marsMesh.rotation.y += delta * 0.04;
@@ -1575,8 +1575,8 @@ function updateCelestialBodies(time, delta) {
   }
   // Neptune - 土星下方，用户脚下区域，forward与门框齐平
   if (neptuneMesh) {
-    const neptunePos = doorPlanePoint.clone().addScaledVector(doorForward, 0).addScaledVector(doorRight, -25);
-    neptunePos.y = doorPlanePoint.y - 18;
+    const neptunePos = doorPlanePoint.clone().addScaledVector(doorForward, -2).addScaledVector(doorRight, -25);
+    neptunePos.y = doorPlanePoint.y - 25;
     neptuneMesh.position.copy(neptunePos);
     neptuneMesh.rotation.y += delta * 0.025;
   }
