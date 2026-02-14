@@ -453,7 +453,7 @@ function createNearbyStars(count) {
   return { points, baseOffsets: positions.slice(), colors: colors.slice(), sizes: sizes.slice(), phases, count };
 }
 
-function updateNearbyStars(data, time, camPos, breathFactor) {
+function updateNearbyStars(data, time, camPos, breathFactor = 1) {
   if (!data) return;
   const { points, baseOffsets, colors, phases, count } = data;
   const pos = points.geometry.attributes.position.array;
@@ -482,7 +482,7 @@ function updateNearbyStars(data, time, camPos, breathFactor) {
   points.geometry.attributes.color.needsUpdate = true;
 }
 
-function updateStars(data, time, breathFactor) {
+function updateStars(data, time, breathFactor = 1) {
   if (!data) return;
   const { points, colors, phases } = data;
   const col = points.geometry.attributes.color.array;
@@ -496,7 +496,7 @@ function updateStars(data, time, breathFactor) {
   points.geometry.attributes.color.needsUpdate = true;
 }
 
-function updateFloatingStars(data, time, breathFactor) {
+function updateFloatingStars(data, time, breathFactor = 1) {
   if (!data) return;
   const { points, positions, colors, phases } = data;
   const pos = points.geometry.attributes.position.array;
@@ -516,7 +516,7 @@ function updateFloatingStars(data, time, breathFactor) {
   points.geometry.attributes.color.needsUpdate = true;
 }
 
-function updateBrightStars(data, time, breathFactor) {
+function updateBrightStars(data, time, breathFactor = 1) {
   if (!data) return;
   const { points, positions, colors, phases } = data;
   const pos = points.geometry.attributes.position.array;
@@ -1303,7 +1303,7 @@ function updateConstellationLabels(delta) {
   }
 }
 
-function updateConstellations(time, opacity, breathFactor) {
+function updateConstellations(time, opacity, breathFactor = 1) {
   constellationGroups.forEach((group) => {
     const name = group.userData.name;
     const state = constellationStates.get(name) || 'undiscovered';
@@ -1766,8 +1766,9 @@ function render(_, frame) {
 
   if (placed) {
     // 星空呼吸效果 - 幅度0.88~1.12
-    breathPhase += delta * 0.4; // 呼吸周期约15秒
-    const breathFactor = 0.88 + 0.12 * (1 + Math.sin(breathPhase)) / 2 * 2; // 0.88 ~ 1.12
+    breathPhase += delta * 0.4;
+    const breathFactor = 0.88 + 0.24 * (0.5 + 0.5 * Math.sin(breathPhase));
+
     
     updateTransition(xrCam, delta);
     updateMeteors(delta);
