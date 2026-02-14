@@ -31,6 +31,7 @@ let sunMesh = null;
 let sunGlowSprite = null;
 let venusMesh = null;
 let neptuneMesh = null;
+let mercuryMesh = null;
 let easterEggs = [];
 let constellationGroups = [];
 let placed = false;
@@ -86,6 +87,18 @@ let wishMessage = null;
 let wishParticles = [];
 let lastWishTriggerTime = 0;
 const WISH_COOLDOWN = 10000;
+
+// Make A Wish 门前文字
+let makeWishSprite = null;
+let makeWishVisible = false;
+let makeWishOpacity = 0;
+
+// 双指放大天体
+let pinchStartDistance = 0;
+let isPinching = false;
+let zoomedPlanet = null;
+let planetZoomScale = 1;
+let planetBaseScales = new Map();
 
 // ============ 初始化 ============
 init();
@@ -155,25 +168,104 @@ function init() {
 
 function initTouchEvents() {
   const canvas = renderer.domElement;
+  
   canvas.addEventListener("touchstart", (e) => {
     if (!placed) return;
+    
+    // 双指检测
+    if (e.touches.length === 2) {
+      isPinching = true;
+      pinchStartDistance = getPinchDistance(e.touches);
+      detectZoomedPlanet();
+      return;
+    }
+    
+    // 单指绘制流星
     isTouching = true;
     touchPoints = [];
     const touch = e.touches[0];
     touchPoints.push({ x: touch.clientX, y: touch.clientY });
   }, { passive: true });
+  
   canvas.addEventListener("touchmove", (e) => {
+    if (!placed) return;
+    
+    // 双指放大
+    if (isPinching && e.touches.length === 2) {
+      const currentDistance = getPinchDistance(e.touches);
+      const scale = currentDistance / pinchStartDistance;
+      if (zoomedPlanet) {
+        const baseScale = planetBaseScales.get(zoomedPlanet) || 1;
+        planetZoomScale = Math.max(1, Math.min(3, scale));
+        zoomedPlanet.scale.setScalar(baseScale * planetZoomScale);
+      }
+      return;
+    }
+    
     if (!isTouching) return;
     const touch = e.touches[0];
     touchPoints.push({ x: touch.clientX, y: touch.clientY });
     if (touchPoints.length > 25) touchPoints.shift();
   }, { passive: true });
-  canvas.addEventListener("touchend", () => {
+  
+  canvas.addEventListener("touchend", (e) => {
+    if (!placed) return;
+    
+    // 双指结束
+    if (isPinching) {
+      isPinching = false;
+      // 不立即重置，让动画缓慢恢复
+      return;
+    }
+    
     if (!isTouching) return;
     isTouching = false;
     if (isInside && touchPoints.length >= 3) spawnMeteor();
     touchPoints = [];
   }, { passive: true });
+}
+
+function getPinchDistance(touches) {
+  const dx = touches[0].clientX - touches[1].clientX;
+  const dy = touches[0].clientY - touches[1].clientY;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function detectZoomedPlanet() {
+  const xrCam = renderer.xr.getCamera(camera);
+  xrCam.getWorldPosition(_camPos);
+  const camDir = new THREE.Vector3(0, 0, -1).applyQuaternion(xrCam.quaternion);
+  
+  const planets = [moonMesh, jupiterMesh, marsMesh, saturnMesh, sunMesh, venusMesh, neptuneMesh, mercuryMesh].filter(p => p);
+  let closestPlanet = null;
+  let closestDot = -1;
+  
+  planets.forEach(planet => {
+    const toPlanet = planet.position.clone().sub(_camPos).normalize();
+    const dot = camDir.dot(toPlanet);
+    if (dot > 0.9 && dot > closestDot) {
+      closestDot = dot;
+      closestPlanet = planet;
+    }
+  });
+  
+  zoomedPlanet = closestPlanet;
+  if (zoomedPlanet && !planetBaseScales.has(zoomedPlanet)) {
+    planetBaseScales.set(zoomedPlanet, zoomedPlanet.scale.x);
+  }
+}
+
+function updatePlanetZoom(delta) {
+  if (!isPinching && planetZoomScale > 1) {
+    planetZoomScale = Math.max(1, planetZoomScale - delta * 0.8);
+    if (zoomedPlanet) {
+      const baseScale = planetBaseScales.get(zoomedPlanet) || 1;
+      zoomedPlanet.scale.setScalar(baseScale * planetZoomScale);
+    }
+    if (planetZoomScale <= 1) {
+      zoomedPlanet = null;
+    }
+  }
 }
 
 function initAudio() {
@@ -625,8 +717,8 @@ function updateGalaxy(time, delta) {
   if (!galaxySprite || !placed) return;
   
   const galaxyPos = doorPlanePoint.clone()
-    .addScaledVector(doorForward, -200)
-    .addScaledVector(doorRight, 0);
+    .addScaledVector(doorForward, 25)
+    .addScaledVector(doorRight, -40);
   galaxyPos.y = doorPlanePoint.y + 12;
   
   galaxySprite.position.copy(galaxyPos);
@@ -662,6 +754,76 @@ function updateGalaxy(time, delta) {
   }
 }
 
+// ============ Make A Wish 门前文字 ============
+function createMakeWishSprite() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 64;
+  const ctx = canvas.getContext("2d");
+  
+  ctx.font = "500 20px Cinzel, Georgia, serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  
+  // 金色文字，带深色描边增加可读性
+  ctx.strokeStyle = "rgba(80, 60, 20, 0.8)";
+  ctx.lineWidth = 3;
+  ctx.strokeText("Make A Wish", 128, 32);
+  
+  ctx.shadowColor = "rgba(255, 220, 150, 0.8)";
+  ctx.shadowBlur = 12;
+  ctx.fillStyle = "rgba(255, 215, 120, 0.9)";
+  ctx.fillText("Make A Wish", 128, 32);
+  
+  ctx.shadowBlur = 6;
+  ctx.fillStyle = "rgba(255, 230, 170, 1)";
+  ctx.fillText("Make A Wish", 128, 32);
+  
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  
+  const mat = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+  });
+  
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(1.2, 0.3, 1);
+  sprite.renderOrder = 50;
+  
+  return sprite;
+}
+
+function updateMakeWishSprite(camPos, delta) {
+  if (!makeWishSprite || !placed) return;
+  
+  // 放在门框中心，雾门前
+  const wishPos = doorPlanePoint.clone();
+  wishPos.y += DOOR_HEIGHT * 0.5;
+  makeWishSprite.position.copy(wishPos);
+  
+  // 计算距离门的距离
+  const toDoor = camPos.clone().sub(doorPlanePoint);
+  const distToPlane = doorPlaneNormal.dot(toDoor);
+  const rightDist = Math.abs(doorRight.dot(toDoor));
+  
+  // 在门外且距离<1m时显示
+  const shouldShow = !isInside && distToPlane > 0 && distToPlane < 1 && rightDist < 1;
+  
+  if (shouldShow && !makeWishVisible) {
+    makeWishVisible = true;
+  } else if (!shouldShow && makeWishVisible && makeWishOpacity <= 0.01) {
+    makeWishVisible = false;
+  }
+  
+  // 渐入渐出
+  const targetOpacity = makeWishVisible ? 1 : 0;
+  makeWishOpacity += (targetOpacity - makeWishOpacity) * delta * 3;
+  makeWishSprite.material.opacity = makeWishOpacity;
+}
+
 // ============ 祝福彩蛋系统 ============
 function createWishMessage() {
   const canvas = document.createElement("canvas");
@@ -669,7 +831,7 @@ function createWishMessage() {
   canvas.height = 64;
   const ctx = canvas.getContext("2d");
   
-  ctx.font = "500 18px Cinzel, Georgia, serif";
+  ctx.font = "500 24px Cinzel, Georgia, serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   
@@ -1057,7 +1219,7 @@ function updateMeteors(delta) {
 // ============ 12星座数据 ============
 function getConstellationsData() {
   return [
-    { name: "Sagittarius", stars: [{ x: 0, y: 0, z: 0, size: 0.65 },{ x: 0.3, y: 1.2, z: 0.1, size: 0.6 },{ x: 0.8, y: 2.0, z: 0, size: 0.55 },{ x: -0.8, y: 0.5, z: -0.1, size: 0.55 },{ x: -0.3, y: 1.5, z: 0.1, size: 0.5 },{ x: -1.0, y: 1.2, z: 0, size: 0.55 },{ x: -0.5, y: -0.5, z: -0.1, size: 0.5 },{ x: 1.2, y: 0.8, z: 0.1, size: 0.55 }], lines: [[0,1], [1,2], [2,4], [4,5], [5,0], [3,5], [3,0], [3,6], [1,7]], position: { forward: 1, right: -15, up: 30 } },
+    { name: "Sagittarius", stars: [{ x: 0, y: 0, z: 0, size: 0.65 },{ x: 0.3, y: 1.2, z: 0.1, size: 0.6 },{ x: 0.8, y: 2.0, z: 0, size: 0.55 },{ x: -0.8, y: 0.5, z: -0.1, size: 0.55 },{ x: -0.3, y: 1.5, z: 0.1, size: 0.5 },{ x: -1.0, y: 1.2, z: 0, size: 0.55 },{ x: -0.5, y: -0.5, z: -0.1, size: 0.5 },{ x: 1.2, y: 0.8, z: 0.1, size: 0.55 }], lines: [[0,1], [1,2], [2,4], [4,5], [5,0], [3,5], [3,0], [3,6], [1,7]], position: { forward: 12, right: -15, up: 2 } },
     { name: "Aries", stars: [{ x: 0, y: 0, z: 0, size: 0.7 },{ x: -1.0, y: 0.5, z: 0.1, size: 0.55 },{ x: -1.8, y: 1.0, z: 0, size: 0.5 },{ x: 1.2, y: -0.3, z: -0.1, size: 0.45 }], lines: [[2,1], [1,0], [0,3]], position: { forward: 38, right: 30, up: 12 } },
     { name: "Gemini", stars: [{ x: 0, y: 3.0, z: 0, size: 0.7 },{ x: 1.5, y: 2.8, z: 0.1, size: 0.7 },{ x: 0.1, y: 2.0, z: 0, size: 0.45 },{ x: 1.4, y: 1.8, z: 0.1, size: 0.45 },{ x: 0.2, y: 1.0, z: -0.1, size: 0.5 },{ x: 1.3, y: 0.8, z: 0, size: 0.5 },{ x: 0.3, y: 0, z: 0.1, size: 0.45 },{ x: 1.2, y: -0.2, z: -0.1, size: 0.45 },{ x: 0.4, y: -1.0, z: 0, size: 0.45 },{ x: 1.1, y: -1.2, z: 0.1, size: 0.55 }], lines: [[0,2], [2,4], [4,6], [6,8], [1,3], [3,5], [5,7], [7,9]], position: { forward: 42, right: -8, up: 8 } },
     { name: "Taurus", stars: [{ x: 0, y: 0, z: 0, size: 0.8 },{ x: -3.0, y: 1.5, z: 0.1, size: 0.6 },{ x: 0.5, y: -1.0, z: 0, size: 0.5 },{ x: -0.8, y: 0.8, z: -0.1, size: 0.5 },{ x: -0.3, y: 0.5, z: 0.1, size: 0.5 },{ x: -1.5, y: 1.0, z: 0, size: 0.5 },{ x: -2.2, y: 2.0, z: -0.1, size: 0.5 }], lines: [[0,3], [0,4], [3,4], [4,5], [5,1], [5,6], [0,2]], position: { forward: 20, right: -40, up: 5 } },
@@ -1222,16 +1384,15 @@ function createNebulaPortal() {
 function createEasterEggs() {
   const eggs = [];
   const eggData = [
-    { text: "Z", relPos: { forward: 25, right: -18, up: 3 } },
-    { text: "X", relPos: { forward: 30, right: 20, up: -1 } },
-    { text: "D", relPos: { forward: 35, right: 0, up: 12 } },
-    { text: "You found my heart", relPos: { forward: -19, right: 9, up: 7 } },
+    { text: "Ad Astra", relPos: { forward: 25, right: -18, up: 8 } },
+    { text: "Dream", relPos: { forward: 30, right: 20, up: -1 } },
+    { text: "✦", relPos: { forward: 35, right: 0, up: 12 } },
   ];
   eggData.forEach((egg) => {
     const canvas = document.createElement("canvas");
     canvas.width = 256; canvas.height = 64;
     const ctx = canvas.getContext("2d");
-    ctx.font = "18px Cinzel, Georgia, serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.font = "24px Cinzel, Georgia, serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
     ctx.fillStyle = "rgba(180, 180, 200, 0.3)";
     ctx.fillText(egg.text, 128, 32);
     const texture = new THREE.CanvasTexture(canvas);
@@ -1314,6 +1475,11 @@ function build() {
   nebulaPortal = createNebulaPortal();
   doorGroup.add(nebulaPortal);
 
+  // Make A Wish 门前文字
+  makeWishSprite = createMakeWishSprite();
+  doorGroup.add(makeWishSprite);
+  makeWishSprite.position.set(0, DOOR_HEIGHT * 0.5, 0.05);
+
   ambientStarData = createAmbientStars(150);
   ambientStars = ambientStarData.points;
   doorGroup.add(ambientStars);
@@ -1326,26 +1492,26 @@ function build() {
   skySphere.renderOrder = 1;
   scene.add(skySphere);
 
-  starData = createStars(18000, SKY_RADIUS * 0.95, 0.35);
+  starData = createStars(8000, SKY_RADIUS * 0.95, 0.35);
   skyStars = starData.points;
   skyStars.renderOrder = 2;
   scene.add(skyStars);
 
-  floatingStarData = createFloatingStars(8500, SKY_RADIUS * 0.08, SKY_RADIUS * 0.5, 0.3);
+  floatingStarData = createFloatingStars(2500, SKY_RADIUS * 0.08, SKY_RADIUS * 0.5, 0.3);
   floatingStars = floatingStarData.points;
   floatingStars.renderOrder = 3;
   scene.add(floatingStars);
 
-  brightStarData = createBrightStars(5500, SKY_RADIUS * 0.85);
+  brightStarData = createBrightStars(150, SKY_RADIUS * 0.85);
   brightStars = brightStarData.points;
   brightStars.renderOrder = 4;
   scene.add(brightStars);
 
-  nearbyStarData = createNearbyStars(3500);
+  nearbyStarData = createNearbyStars(500);
   nearbyStars = nearbyStarData.points;
   scene.add(nearbyStars);
 
-  spaceStarData = createSpaceStars(3600);
+  spaceStarData = createSpaceStars(600);
   spaceStars = spaceStarData.points;
   spaceStars.renderOrder = 6;
   scene.add(spaceStars);
@@ -1419,21 +1585,28 @@ function build() {
   venusMesh.renderOrder = 10;
   scene.add(venusMesh);
 
-  // Neptune - 新增
+  // Neptune
   const neptuneGeo = new THREE.SphereGeometry(4, 64, 64);
   neptuneMesh = new THREE.Mesh(neptuneGeo, new THREE.MeshBasicMaterial({ color: 0x4466aa, transparent: true, opacity: 0 }));
   neptuneMesh.renderOrder = 10;
   scene.add(neptuneMesh);
 
+  // Mercury - 新增
+  const mercuryGeo = new THREE.SphereGeometry(2, 64, 64);
+  mercuryMesh = new THREE.Mesh(mercuryGeo, new THREE.MeshBasicMaterial({ color: 0xaaaaaa, transparent: true, opacity: 0 }));
+  mercuryMesh.renderOrder = 10;
+  scene.add(mercuryMesh);
+
   // 加载贴图
   texLoader.load(`${BASE}textures/moon.jpg`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; moonMesh.material.map = tex; moonMesh.material.color.set(0xffffff); moonMesh.material.needsUpdate = true; });
-  texLoader.load(`${BASE}textures/earth.jpg`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; jupiterMesh.material.map = tex; jupiterMesh.material.color.set(0xffffff); jupiterMesh.material.needsUpdate = true; });
+  texLoader.load(`${BASE}textures/jupiter.jpg`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; jupiterMesh.material.map = tex; jupiterMesh.material.color.set(0xffffff); jupiterMesh.material.needsUpdate = true; });
   texLoader.load(`${BASE}textures/mars.jpg`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; marsMesh.material.map = tex; marsMesh.material.color.set(0xffffff); marsMesh.material.needsUpdate = true; });
   texLoader.load(`${BASE}textures/saturn.jpg`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; saturnMesh.material.map = tex; saturnMesh.material.color.set(0xffffff); saturnMesh.material.needsUpdate = true; });
   texLoader.load(`${BASE}textures/saturn_ring.png`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; saturnRingMesh.material.map = tex; saturnRingMesh.material.needsUpdate = true; });
   texLoader.load(`${BASE}textures/sun.jpg`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; sunMesh.material.map = tex; sunMesh.material.color.set(0xffffff); sunMesh.material.needsUpdate = true; });
   texLoader.load(`${BASE}textures/venus.jpg`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; venusMesh.material.map = tex; venusMesh.material.color.set(0xffffff); venusMesh.material.needsUpdate = true; });
   texLoader.load(`${BASE}textures/neptune.jpg`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; neptuneMesh.material.map = tex; neptuneMesh.material.color.set(0xffffff); neptuneMesh.material.needsUpdate = true; });
+  texLoader.load(`${BASE}textures/mercury.jpg`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; mercuryMesh.material.map = tex; mercuryMesh.material.color.set(0xffffff); mercuryMesh.material.needsUpdate = true; });
 
   const constellationsData = getConstellationsData();
   constellationsData.forEach((data) => {
@@ -1517,6 +1690,7 @@ function updateTransition(xrCam, delta) {
   if (sunGlowSprite) sunGlowSprite.material.opacity = smooth * 0.6;
   if (venusMesh) venusMesh.material.opacity = smooth;
   if (neptuneMesh) neptuneMesh.material.opacity = smooth;
+  if (mercuryMesh) mercuryMesh.material.opacity = smooth;
   
   easterEggs.forEach(egg => { egg.userData.spriteMat.opacity = smooth * 0.3; });
   updateConstellations(performance.now() / 1000, smooth);
@@ -1535,13 +1709,13 @@ function updateCelestialBodies(time, delta) {
     moonMesh.rotation.y += delta * 0.05;
   }
   if (jupiterMesh) {
-    const jupiterPos = doorPlanePoint.clone().addScaledVector(doorForward, 25).addScaledVector(doorRight, 25);
+    const jupiterPos = doorPlanePoint.clone().addScaledVector(doorForward, 28).addScaledVector(doorRight, 15);
     jupiterPos.y = doorPlanePoint.y + 5;
     jupiterMesh.position.copy(jupiterPos);
     jupiterMesh.rotation.y += delta * 0.03;
   }
   if (marsMesh) {
-    const marsPos = doorPlanePoint.clone().addScaledVector(doorForward, 35).addScaledVector(doorRight, 5);
+    const marsPos = doorPlanePoint.clone().addScaledVector(doorForward, 25).addScaledVector(doorRight, 5);
     marsPos.y = doorPlanePoint.y - 8;
     marsMesh.position.copy(marsPos);
     marsMesh.rotation.y += delta * 0.04;
@@ -1557,7 +1731,7 @@ function updateCelestialBodies(time, delta) {
     }
   }
   if (sunMesh) {
-    const sunPos = doorPlanePoint.clone().addScaledVector(doorForward, -75).addScaledVector(doorRight, 45);
+    const sunPos = doorPlanePoint.clone().addScaledVector(doorForward, -55).addScaledVector(doorRight, 25);
     sunPos.y = doorPlanePoint.y + 18;
     sunMesh.position.copy(sunPos);
     sunMesh.rotation.y += delta * 0.01;
@@ -1573,12 +1747,18 @@ function updateCelestialBodies(time, delta) {
     venusMesh.position.copy(venusPos);
     venusMesh.rotation.y += delta * 0.06;
   }
-  // Neptune - 土星下方，用户脚下区域，forward与门框齐平
   if (neptuneMesh) {
-    const neptunePos = doorPlanePoint.clone().addScaledVector(doorForward, -2).addScaledVector(doorRight, -25);
-    neptunePos.y = doorPlanePoint.y - 25;
+    const neptunePos = doorPlanePoint.clone().addScaledVector(doorForward, 0).addScaledVector(doorRight, -25);
+    neptunePos.y = doorPlanePoint.y - 18;
     neptuneMesh.position.copy(neptunePos);
     neptuneMesh.rotation.y += delta * 0.025;
+  }
+  // Mercury - 进门后转身方向下层
+  if (mercuryMesh) {
+    const mercuryPos = doorPlanePoint.clone().addScaledVector(doorForward, -18).addScaledVector(doorRight, 20);
+    mercuryPos.y = doorPlanePoint.y - 12;
+    mercuryMesh.position.copy(mercuryPos);
+    mercuryMesh.rotation.y += delta * 0.08;
   }
   
   updateMoonGlow();
@@ -1645,6 +1825,12 @@ function render(_, frame) {
     
     updateGalaxy(time, delta);
     
+    // Make A Wish 门前文字
+    updateMakeWishSprite(_camPos, delta);
+    
+    // 双指放大天体恢复
+    updatePlanetZoom(delta);
+    
     if (!guideMeteorTriggered && isInside && (now - placedTime) >= 10000) {
       guideMeteorTriggered = true;
       spawnGuideMeteor();
@@ -1671,6 +1857,12 @@ function reset() {
   meteorShowerTriggered = false; guideMeteorTriggered = false;
   constellationStates.clear();
   lastWishTriggerTime = 0;
+  makeWishVisible = false;
+  makeWishOpacity = 0;
+  isPinching = false;
+  zoomedPlanet = null;
+  planetZoomScale = 1;
+  planetBaseScales.clear();
   
   if (wishMessage) {
     scene.remove(wishMessage.sprite);
@@ -1703,6 +1895,8 @@ function reset() {
   if (sunGlowSprite) { scene.remove(sunGlowSprite); sunGlowSprite = null; }
   if (venusMesh) { scene.remove(venusMesh); venusMesh = null; }
   if (neptuneMesh) { scene.remove(neptuneMesh); neptuneMesh = null; }
+  if (mercuryMesh) { scene.remove(mercuryMesh); mercuryMesh = null; }
+  makeWishSprite = null;
   constellationGroups.forEach(g => scene.remove(g));
   constellationGroups = [];
   easterEggs.forEach(egg => scene.remove(egg));
