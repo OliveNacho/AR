@@ -72,32 +72,25 @@ let starPngTexture = null;
 let star01PngTexture = null;
 let nebulaTexture = null;
 let galaxyTexture = null;
-let andromedaTexture = null;
 
 // 银河漩涡
 let galaxySprite = null;
 let galaxyOrbitStars = null;
 let galaxyOrbitData = null;
 
-// 仙女座星系
-let andromedaSprite = null;
-
 // 月球光晕
 let moonGlow = null;
 
-// Make A Wish 文字
-let makeWishSprite = null;
-let makeWishMat = null;
-let makeWishVisible = false;
-
-// 彩蛋
+// 彩蛋 - Shine Like The Stars
 let wishMessage = null;
 let wishParticles = [];
 let lastWishTriggerTime = 0;
 const WISH_COOLDOWN = 10000;
 
-// 星空呼吸
-let breathPhase = 0;
+// Make A Wish (新增)
+let makeWishLabel = null;
+let makeWishTriggered = false;
+let makeWishShown = false;
 
 // ============ 初始化 ============
 init();
@@ -128,9 +121,6 @@ function init() {
   
   galaxyTexture = texLoader.load(`${BASE}textures/galaxy.png`);
   galaxyTexture.colorSpace = THREE.SRGBColorSpace;
-  
-  andromedaTexture = texLoader.load(`${BASE}textures/dromeda.png`);
-  andromedaTexture.colorSpace = THREE.SRGBColorSpace;
   
   starTexture = createStarTexture();
 
@@ -453,7 +443,7 @@ function createNearbyStars(count) {
   return { points, baseOffsets: positions.slice(), colors: colors.slice(), sizes: sizes.slice(), phases, count };
 }
 
-function updateNearbyStars(data, time, camPos, breathFactor = 1) {
+function updateNearbyStars(data, time, camPos) {
   if (!data) return;
   const { points, baseOffsets, colors, phases, count } = data;
   const pos = points.geometry.attributes.position.array;
@@ -461,9 +451,9 @@ function updateNearbyStars(data, time, camPos, breathFactor = 1) {
   
   for (let i = 0; i < count; i++) {
     const twinkle = 0.3 + 0.7 * Math.sin(time * phases[i*5+1] + phases[i*5]);
-    col[i*3] = Math.min(1, colors[i*3] * twinkle * 1.5 * breathFactor);
-    col[i*3+1] = Math.min(1, colors[i*3+1] * twinkle * 1.5 * breathFactor);
-    col[i*3+2] = Math.min(1, colors[i*3+2] * twinkle * 1.5 * breathFactor);
+    col[i*3] = Math.min(1, colors[i*3] * twinkle * 1.5);
+    col[i*3+1] = Math.min(1, colors[i*3+1] * twinkle * 1.5);
+    col[i*3+2] = Math.min(1, colors[i*3+2] * twinkle * 1.5);
     
     const driftX = Math.sin(time * 0.15 + phases[i*5+2]) * 0.3;
     const driftY = Math.sin(time * 0.12 + phases[i*5+3]) * 0.2;
@@ -482,21 +472,21 @@ function updateNearbyStars(data, time, camPos, breathFactor = 1) {
   points.geometry.attributes.color.needsUpdate = true;
 }
 
-function updateStars(data, time, breathFactor = 1) {
+function updateStars(data, time) {
   if (!data) return;
   const { points, colors, phases } = data;
   const col = points.geometry.attributes.color.array;
   const count = colors.length / 3;
   for (let i = 0; i < count; i++) {
     const twinkle = 0.5 + 0.5 * Math.sin(time * phases[i*4+1] + phases[i*4]);
-    col[i*3] = Math.min(1, colors[i*3] * twinkle * 1.4 * breathFactor);
-    col[i*3+1] = Math.min(1, colors[i*3+1] * twinkle * 1.4 * breathFactor);
-    col[i*3+2] = Math.min(1, colors[i*3+2] * twinkle * 1.4 * breathFactor);
+    col[i*3] = Math.min(1, colors[i*3] * twinkle * 1.4);
+    col[i*3+1] = Math.min(1, colors[i*3+1] * twinkle * 1.4);
+    col[i*3+2] = Math.min(1, colors[i*3+2] * twinkle * 1.4);
   }
   points.geometry.attributes.color.needsUpdate = true;
 }
 
-function updateFloatingStars(data, time, breathFactor = 1) {
+function updateFloatingStars(data, time) {
   if (!data) return;
   const { points, positions, colors, phases } = data;
   const pos = points.geometry.attributes.position.array;
@@ -504,9 +494,9 @@ function updateFloatingStars(data, time, breathFactor = 1) {
   const count = positions.length / 3;
   for (let i = 0; i < count; i++) {
     const twinkle = 0.4 + 0.6 * Math.sin(time * phases[i*4+1] + phases[i*4]);
-    col[i*3] = Math.min(1, colors[i*3] * twinkle * 1.5 * breathFactor);
-    col[i*3+1] = Math.min(1, colors[i*3+1] * twinkle * 1.5 * breathFactor);
-    col[i*3+2] = Math.min(1, colors[i*3+2] * twinkle * 1.5 * breathFactor);
+    col[i*3] = Math.min(1, colors[i*3] * twinkle * 1.5);
+    col[i*3+1] = Math.min(1, colors[i*3+1] * twinkle * 1.5);
+    col[i*3+2] = Math.min(1, colors[i*3+2] * twinkle * 1.5);
     const drift = 0.5;
     pos[i*3] = positions[i*3] + Math.sin(time * 0.08 + phases[i*4+2]) * drift;
     pos[i*3+1] = positions[i*3+1] + Math.sin(time * 0.06 + phases[i*4]) * drift * 0.4;
@@ -516,7 +506,7 @@ function updateFloatingStars(data, time, breathFactor = 1) {
   points.geometry.attributes.color.needsUpdate = true;
 }
 
-function updateBrightStars(data, time, breathFactor = 1) {
+function updateBrightStars(data, time) {
   if (!data) return;
   const { points, positions, colors, phases } = data;
   const pos = points.geometry.attributes.position.array;
@@ -524,9 +514,9 @@ function updateBrightStars(data, time, breathFactor = 1) {
   const count = colors.length / 3;
   for (let i = 0; i < count; i++) {
     const pulse = 0.3 + 0.7 * Math.sin(time * phases[i*4+1] + phases[i*4]);
-    col[i*3] = Math.min(1, colors[i*3] * pulse * 1.6 * breathFactor);
-    col[i*3+1] = Math.min(1, colors[i*3+1] * pulse * 1.6 * breathFactor);
-    col[i*3+2] = Math.min(1, colors[i*3+2] * pulse * 1.6 * breathFactor);
+    col[i*3] = Math.min(1, colors[i*3] * pulse * 1.6);
+    col[i*3+1] = Math.min(1, colors[i*3+1] * pulse * 1.6);
+    col[i*3+2] = Math.min(1, colors[i*3+2] * pulse * 1.6);
     const drift = 0.2;
     pos[i*3] = positions[i*3] + Math.sin(time * 0.05 + phases[i*4+2]) * drift;
     pos[i*3+1] = positions[i*3+1] + Math.sin(time * 0.04 + phases[i*4]) * drift * 0.3;
@@ -677,63 +667,34 @@ function updateGalaxy(time, delta) {
   }
 }
 
-// ============ 仙女座星系 ============
-function createAndromedaSprite() {
-  const mat = new THREE.SpriteMaterial({
-    map: andromedaTexture,
-    transparent: true,
-    opacity: 0,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  });
-  const sprite = new THREE.Sprite(mat);
-  sprite.scale.set(28, 28, 1);
-  sprite.renderOrder = 5;
-  return sprite;
-}
-
-function updateAndromeda(time, delta) {
-  if (!andromedaSprite || !placed) return;
-  
-  // 位置：转身方向，远处下方
-  const andromedaPos = doorPlanePoint.clone()
-    .addScaledVector(doorForward, -50)
-    .addScaledVector(doorRight, 0);
-  andromedaPos.y = doorPlanePoint.y - 20;
-  
-  andromedaSprite.position.copy(andromedaPos);
-  andromedaSprite.material.opacity = transitionValue * 0.55;
-  andromedaSprite.material.rotation += delta * 0.12; // 较快旋转
-}
-
-// ============ Make A Wish 文字 ============
-function createMakeWishSprite() {
+// ============ Make A Wish 标签（新增）============
+function createMakeWishLabel() {
   const canvas = document.createElement("canvas");
   canvas.width = 512;
-  canvas.height = 128;
+  canvas.height = 96;
   const ctx = canvas.getContext("2d");
   
   ctx.font = "500 36px Cinzel, Georgia, serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   
-  // 多层发光效果
-  ctx.shadowColor = "rgba(200, 220, 255, 1)";
-  ctx.shadowBlur = 25;
-  ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
-  ctx.fillText("Make A Wish", 256, 64);
+  // 多层发光效果，与星座名字相同
+  ctx.shadowColor = "rgba(200, 220, 255, 0.8)";
+  ctx.shadowBlur = 20;
+  ctx.fillStyle = "rgba(220, 230, 255, 0.5)";
+  ctx.fillText("Make A Wish", 256, 48);
   
-  ctx.shadowBlur = 15;
-  ctx.fillStyle = "rgba(230, 240, 255, 0.6)";
-  ctx.fillText("Make A Wish", 256, 64);
+  ctx.shadowBlur = 12;
+  ctx.fillStyle = "rgba(220, 230, 255, 0.7)";
+  ctx.fillText("Make A Wish", 256, 48);
   
-  ctx.shadowBlur = 8;
+  ctx.shadowBlur = 6;
   ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
-  ctx.fillText("Make A Wish", 256, 64);
+  ctx.fillText("Make A Wish", 256, 48);
   
-  ctx.shadowBlur = 3;
+  ctx.shadowBlur = 0;
   ctx.fillStyle = "#ffffff";
-  ctx.fillText("Make A Wish", 256, 64);
+  ctx.fillText("Make A Wish", 256, 48);
   
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -747,48 +708,80 @@ function createMakeWishSprite() {
   });
   
   const sprite = new THREE.Sprite(mat);
-  sprite.scale.set(1.8, 0.45, 1);
+  sprite.scale.set(1.8, 0.35, 1);
   sprite.renderOrder = 50;
   
-  return { sprite, mat };
+  return { sprite, mat, opacity: 0, fadeState: 'hidden' };
 }
 
-function updateMakeWish(camPos, delta) {
-  if (!makeWishSprite || !placed) return;
+function checkMakeWishTrigger(camPos) {
+  if (!placed || makeWishTriggered || isInside) return;
   
   // 计算到门的距离
   const toDoor = camPos.clone().sub(doorPlanePoint);
   const distToPlane = doorPlaneNormal.dot(toDoor);
-  const signedDist = distToPlane;
   
-  // 在门外且距离<1m
-  const shouldShow = signedDist > 0 && signedDist < 1.0 && !isInside;
-  
-  // 位置在门框中心前方
-  const wishPos = doorPlanePoint.clone().addScaledVector(doorPlaneNormal, 0.3);
-  wishPos.y = doorPlanePoint.y + DOOR_HEIGHT * 0.5;
-  makeWishSprite.position.copy(wishPos);
-  
-  // 面向用户
-  makeWishSprite.lookAt(camPos);
-  
-  // 淡入淡出
-  if (shouldShow && !makeWishVisible) {
-    makeWishVisible = true;
+  // 必须在门外（distToPlane > 0）且距离 < 1m
+  if (distToPlane > 0 && distToPlane < 1.0) {
+    // 检查是否在门框范围内（左右不超过0.8m）
+    const rightDist = Math.abs(doorRight.dot(toDoor));
+    if (rightDist < 0.8) {
+      if (!makeWishShown) {
+        makeWishShown = true;
+        if (makeWishLabel) {
+          makeWishLabel.fadeState = 'fadeIn';
+        }
+      }
+    }
   }
-  
-  // 进门时渐隐
-  if (isInside) {
-    makeWishVisible = false;
-  }
-  
-  const targetOpacity = makeWishVisible ? 1 : 0;
-  const currentOpacity = makeWishMat.opacity;
-  makeWishMat.opacity += (targetOpacity - currentOpacity) * delta * 3;
-  makeWishMat.opacity = Math.max(0, Math.min(1, makeWishMat.opacity));
 }
 
-// ============ 祝福彩蛋系统 ============
+function updateMakeWishLabel(delta) {
+  if (!makeWishLabel) return;
+  
+  // 位置：门框中心，雾门前方 0.25m
+  const labelPos = doorPlanePoint.clone()
+    .addScaledVector(doorForward, -0.25);
+  labelPos.y = doorPlanePoint.y + DOOR_HEIGHT * 0.5;
+  makeWishLabel.sprite.position.copy(labelPos);
+  
+  // 让标签面向门外（用户方向）
+  const lookTarget = labelPos.clone().addScaledVector(doorPlaneNormal, 1);
+  makeWishLabel.sprite.lookAt(lookTarget);
+  
+  // 状态机
+  switch (makeWishLabel.fadeState) {
+    case 'hidden':
+      makeWishLabel.opacity = 0;
+      break;
+    case 'fadeIn':
+      makeWishLabel.opacity = Math.min(1, makeWishLabel.opacity + delta * 1.5);
+      if (makeWishLabel.opacity >= 1) {
+        makeWishLabel.fadeState = 'showing';
+      }
+      break;
+    case 'showing':
+      // 进门时开始消失
+      if (isInside) {
+        makeWishLabel.fadeState = 'fadeOut';
+        makeWishTriggered = true; // 标记已触发，不再显示
+      }
+      break;
+    case 'fadeOut':
+      makeWishLabel.opacity = Math.max(0, makeWishLabel.opacity - delta * 2.5);
+      if (makeWishLabel.opacity <= 0) {
+        makeWishLabel.fadeState = 'done';
+      }
+      break;
+    case 'done':
+      makeWishLabel.opacity = 0;
+      break;
+  }
+  
+  makeWishLabel.mat.opacity = makeWishLabel.opacity;
+}
+
+// ============ 祝福彩蛋系统 (Shine Like The Stars) ============
 function createWishMessage() {
   const canvas = document.createElement("canvas");
   canvas.width = 512;
@@ -1303,7 +1296,7 @@ function updateConstellationLabels(delta) {
   }
 }
 
-function updateConstellations(time, opacity, breathFactor = 1) {
+function updateConstellations(time, opacity) {
   constellationGroups.forEach((group) => {
     const name = group.userData.name;
     const state = constellationStates.get(name) || 'undiscovered';
@@ -1325,10 +1318,10 @@ function updateConstellations(time, opacity, breathFactor = 1) {
     group.userData.starMeshes.forEach((star, idx) => {
       const twinkle = 0.5 + 0.5 * Math.sin(time * 2.5 + idx * 0.8 + star.position.x * 2);
       const extraSparkle = Math.random() > 0.98 ? 1.5 : 1;
-      star.userData.baseMat.opacity = opacity * twinkle * brightnessMult * extraSparkle * breathFactor;
+      star.userData.baseMat.opacity = opacity * twinkle * brightnessMult * extraSparkle;
     });
     group.userData.lineMeshes.forEach((line) => { 
-      line.material.opacity = opacity * lineBrightness * breathFactor; 
+      line.material.opacity = opacity * lineBrightness; 
     });
   });
 }
@@ -1443,11 +1436,9 @@ function build() {
   ambientStars = ambientStarData.points;
   doorGroup.add(ambientStars);
 
-  // Make A Wish 文字
-  const wishData = createMakeWishSprite();
-  makeWishSprite = wishData.sprite;
-  makeWishMat = wishData.mat;
-  scene.add(makeWishSprite);
+  // Make A Wish 标签（新增）
+  makeWishLabel = createMakeWishLabel();
+  scene.add(makeWishLabel.sprite);
 
   skySphere = new THREE.Mesh(
     new THREE.SphereGeometry(SKY_RADIUS, 64, 32),
@@ -1487,10 +1478,6 @@ function build() {
   galaxyOrbitData = createGalaxyOrbitStars(200);
   galaxyOrbitStars = galaxyOrbitData.points;
   scene.add(galaxyOrbitStars);
-
-  // 仙女座星系
-  andromedaSprite = createAndromedaSprite();
-  scene.add(andromedaSprite);
 
   // Moon
   const moonGeo = new THREE.SphereGeometry(4, 64, 64);
@@ -1562,7 +1549,7 @@ function build() {
 
   // 加载贴图
   texLoader.load(`${BASE}textures/moon.jpg`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; moonMesh.material.map = tex; moonMesh.material.color.set(0xffffff); moonMesh.material.needsUpdate = true; });
-  texLoader.load(`${BASE}textures/earth.jpg`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; jupiterMesh.material.map = tex; jupiterMesh.material.color.set(0xffffff); jupiterMesh.material.needsUpdate = true; });
+  texLoader.load(`${BASE}textures/jupiter.jpg`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; jupiterMesh.material.map = tex; jupiterMesh.material.color.set(0xffffff); jupiterMesh.material.needsUpdate = true; });
   texLoader.load(`${BASE}textures/mars.jpg`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; marsMesh.material.map = tex; marsMesh.material.color.set(0xffffff); marsMesh.material.needsUpdate = true; });
   texLoader.load(`${BASE}textures/saturn.jpg`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; saturnMesh.material.map = tex; saturnMesh.material.color.set(0xffffff); saturnMesh.material.needsUpdate = true; });
   texLoader.load(`${BASE}textures/saturn_ring.png`, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; saturnRingMesh.material.map = tex; saturnRingMesh.material.needsUpdate = true; });
@@ -1612,7 +1599,6 @@ function onSelect() {
   meteorShowerTriggered = false;
   guideMeteorTriggered = false;
   reticle.visible = false;
-  makeWishVisible = false;
 
   playAudio();
 }
@@ -1655,6 +1641,7 @@ function updateTransition(xrCam, delta) {
   if (neptuneMesh) neptuneMesh.material.opacity = smooth;
   
   easterEggs.forEach(egg => { egg.userData.spriteMat.opacity = smooth * 0.3; });
+  updateConstellations(performance.now() / 1000, smooth);
   
   const previewOp = 1 - smooth;
   if (nebulaPortal) nebulaPortal.userData.nebulaMat.opacity = previewOp * 0.5;
@@ -1765,31 +1752,23 @@ function render(_, frame) {
   }
 
   if (placed) {
-    // 星空呼吸效果 - 幅度0.88~1.12
-    breathPhase += delta * 0.4;
-    const breathFactor = 0.88 + 0.24 * (0.5 + 0.5 * Math.sin(breathPhase));
-
-    
     updateTransition(xrCam, delta);
     updateMeteors(delta);
     updateCelestialBodies(time, delta);
     
-    updateStars(starData, time, breathFactor);
-    updateFloatingStars(floatingStarData, time, breathFactor);
-    updateBrightStars(brightStarData, time, breathFactor);
+    updateStars(starData, time);
+    updateFloatingStars(floatingStarData, time);
+    updateBrightStars(brightStarData, time);
     updateSpaceStars(spaceStarData, time);
     
     xrCam.getWorldPosition(_camPos);
-    updateNearbyStars(nearbyStarData, time, _camPos, breathFactor);
+    updateNearbyStars(nearbyStarData, time, _camPos);
     
     updateGalaxy(time, delta);
-    updateAndromeda(time, delta);
     
-    // Make A Wish 文字
-    updateMakeWish(_camPos, delta);
-    
-    // 星座也应用呼吸效果
-    updateConstellations(time, transitionValue, breathFactor);
+    // Make A Wish 检测和更新（新增）
+    checkMakeWishTrigger(_camPos);
+    updateMakeWishLabel(delta);
     
     if (!guideMeteorTriggered && isInside && (now - placedTime) >= 10000) {
       guideMeteorTriggered = true;
@@ -1817,8 +1796,15 @@ function reset() {
   meteorShowerTriggered = false; guideMeteorTriggered = false;
   constellationStates.clear();
   lastWishTriggerTime = 0;
-  makeWishVisible = false;
-  breathPhase = 0;
+  
+  // 重置 Make A Wish 状态
+  makeWishTriggered = false;
+  makeWishShown = false;
+  if (makeWishLabel) {
+    makeWishLabel.fadeState = 'hidden';
+    makeWishLabel.opacity = 0;
+    makeWishLabel.mat.opacity = 0;
+  }
   
   if (wishMessage) {
     scene.remove(wishMessage.sprite);
@@ -1841,7 +1827,6 @@ function reset() {
   if (spaceStars) { scene.remove(spaceStars); spaceStars = null; }
   if (galaxySprite) { scene.remove(galaxySprite); galaxySprite = null; }
   if (galaxyOrbitStars) { scene.remove(galaxyOrbitStars); galaxyOrbitStars = null; }
-  if (andromedaSprite) { scene.remove(andromedaSprite); andromedaSprite = null; }
   if (moonMesh) { scene.remove(moonMesh); moonMesh = null; }
   if (moonGlow) { scene.remove(moonGlow); moonGlow = null; }
   if (jupiterMesh) { scene.remove(jupiterMesh); jupiterMesh = null; }
@@ -1852,7 +1837,7 @@ function reset() {
   if (sunGlowSprite) { scene.remove(sunGlowSprite); sunGlowSprite = null; }
   if (venusMesh) { scene.remove(venusMesh); venusMesh = null; }
   if (neptuneMesh) { scene.remove(neptuneMesh); neptuneMesh = null; }
-  if (makeWishSprite) { scene.remove(makeWishSprite); makeWishSprite = null; makeWishMat = null; }
+  if (makeWishLabel) { scene.remove(makeWishLabel.sprite); makeWishLabel = null; }
   constellationGroups.forEach(g => scene.remove(g));
   constellationGroups = [];
   easterEggs.forEach(egg => scene.remove(egg));
