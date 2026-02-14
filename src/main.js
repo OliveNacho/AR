@@ -81,16 +81,11 @@ let galaxyOrbitData = null;
 // 月球光晕
 let moonGlow = null;
 
-// 彩蛋 - Shine Like The Stars
+// 彩蛋
 let wishMessage = null;
 let wishParticles = [];
 let lastWishTriggerTime = 0;
 const WISH_COOLDOWN = 10000;
-
-// Make A Wish (新增)
-let makeWishLabel = null;
-let makeWishTriggered = false;
-let makeWishShown = false;
 
 // ============ 初始化 ============
 init();
@@ -667,121 +662,7 @@ function updateGalaxy(time, delta) {
   }
 }
 
-// ============ Make A Wish 标签（新增）============
-function createMakeWishLabel() {
-  const canvas = document.createElement("canvas");
-  canvas.width = 512;
-  canvas.height = 96;
-  const ctx = canvas.getContext("2d");
-  
-  ctx.font = "500 36px Cinzel, Georgia, serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  
-  // 多层发光效果，与星座名字相同
-  ctx.shadowColor = "rgba(200, 220, 255, 0.8)";
-  ctx.shadowBlur = 20;
-  ctx.fillStyle = "rgba(220, 230, 255, 0.5)";
-  ctx.fillText("Make A Wish", 256, 48);
-  
-  ctx.shadowBlur = 12;
-  ctx.fillStyle = "rgba(220, 230, 255, 0.7)";
-  ctx.fillText("Make A Wish", 256, 48);
-  
-  ctx.shadowBlur = 6;
-  ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
-  ctx.fillText("Make A Wish", 256, 48);
-  
-  ctx.shadowBlur = 0;
-  ctx.fillStyle = "#ffffff";
-  ctx.fillText("Make A Wish", 256, 48);
-  
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  
-  const mat = new THREE.SpriteMaterial({
-    map: texture,
-    transparent: true,
-    opacity: 0,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  });
-  
-  const sprite = new THREE.Sprite(mat);
-  sprite.scale.set(1.8, 0.35, 1);
-  sprite.renderOrder = 50;
-  
-  return { sprite, mat, opacity: 0, fadeState: 'hidden' };
-}
-
-function checkMakeWishTrigger(camPos) {
-  if (!placed || makeWishTriggered || isInside) return;
-  
-  // 计算到门的距离
-  const toDoor = camPos.clone().sub(doorPlanePoint);
-  const distToPlane = doorPlaneNormal.dot(toDoor);
-  
-  // 必须在门外（distToPlane > 0）且距离 < 1m
-  if (distToPlane > 0 && distToPlane < 1.0) {
-    // 检查是否在门框范围内（左右不超过0.8m）
-    const rightDist = Math.abs(doorRight.dot(toDoor));
-    if (rightDist < 0.8) {
-      if (!makeWishShown) {
-        makeWishShown = true;
-        if (makeWishLabel) {
-          makeWishLabel.fadeState = 'fadeIn';
-        }
-      }
-    }
-  }
-}
-
-function updateMakeWishLabel(delta) {
-  if (!makeWishLabel) return;
-  
-  // 位置：门框中心，雾门前方 0.25m
-  const labelPos = doorPlanePoint.clone()
-    .addScaledVector(doorForward, -0.25);
-  labelPos.y = doorPlanePoint.y + DOOR_HEIGHT * 0.5;
-  makeWishLabel.sprite.position.copy(labelPos);
-  
-  // 让标签面向门外（用户方向）
-  const lookTarget = labelPos.clone().addScaledVector(doorPlaneNormal, 1);
-  makeWishLabel.sprite.lookAt(lookTarget);
-  
-  // 状态机
-  switch (makeWishLabel.fadeState) {
-    case 'hidden':
-      makeWishLabel.opacity = 0;
-      break;
-    case 'fadeIn':
-      makeWishLabel.opacity = Math.min(1, makeWishLabel.opacity + delta * 1.5);
-      if (makeWishLabel.opacity >= 1) {
-        makeWishLabel.fadeState = 'showing';
-      }
-      break;
-    case 'showing':
-      // 进门时开始消失
-      if (isInside) {
-        makeWishLabel.fadeState = 'fadeOut';
-        makeWishTriggered = true; // 标记已触发，不再显示
-      }
-      break;
-    case 'fadeOut':
-      makeWishLabel.opacity = Math.max(0, makeWishLabel.opacity - delta * 2.5);
-      if (makeWishLabel.opacity <= 0) {
-        makeWishLabel.fadeState = 'done';
-      }
-      break;
-    case 'done':
-      makeWishLabel.opacity = 0;
-      break;
-  }
-  
-  makeWishLabel.mat.opacity = makeWishLabel.opacity;
-}
-
-// ============ 祝福彩蛋系统 (Shine Like The Stars) ============
+// ============ 祝福彩蛋系统 ============
 function createWishMessage() {
   const canvas = document.createElement("canvas");
   canvas.width = 512;
@@ -1436,10 +1317,6 @@ function build() {
   ambientStars = ambientStarData.points;
   doorGroup.add(ambientStars);
 
-  // Make A Wish 标签（新增）
-  makeWishLabel = createMakeWishLabel();
-  scene.add(makeWishLabel.sprite);
-
   skySphere = new THREE.Mesh(
     new THREE.SphereGeometry(SKY_RADIUS, 64, 32),
     new THREE.MeshBasicMaterial({ map: panoTexture, side: THREE.BackSide, transparent: true, opacity: 0, depthWrite: false })
@@ -1541,7 +1418,7 @@ function build() {
   venusMesh.renderOrder = 10;
   scene.add(venusMesh);
 
-  // Neptune
+  // Neptune - 新增
   const neptuneGeo = new THREE.SphereGeometry(4, 64, 64);
   neptuneMesh = new THREE.Mesh(neptuneGeo, new THREE.MeshBasicMaterial({ color: 0x4466aa, transparent: true, opacity: 0 }));
   neptuneMesh.renderOrder = 10;
@@ -1695,6 +1572,7 @@ function updateCelestialBodies(time, delta) {
     venusMesh.position.copy(venusPos);
     venusMesh.rotation.y += delta * 0.06;
   }
+  // Neptune - 土星下方，用户脚下区域，forward与门框齐平
   if (neptuneMesh) {
     const neptunePos = doorPlanePoint.clone().addScaledVector(doorForward, 0).addScaledVector(doorRight, -25);
     neptunePos.y = doorPlanePoint.y - 18;
@@ -1766,10 +1644,6 @@ function render(_, frame) {
     
     updateGalaxy(time, delta);
     
-    // Make A Wish 检测和更新（新增）
-    checkMakeWishTrigger(_camPos);
-    updateMakeWishLabel(delta);
-    
     if (!guideMeteorTriggered && isInside && (now - placedTime) >= 10000) {
       guideMeteorTriggered = true;
       spawnGuideMeteor();
@@ -1796,15 +1670,6 @@ function reset() {
   meteorShowerTriggered = false; guideMeteorTriggered = false;
   constellationStates.clear();
   lastWishTriggerTime = 0;
-  
-  // 重置 Make A Wish 状态
-  makeWishTriggered = false;
-  makeWishShown = false;
-  if (makeWishLabel) {
-    makeWishLabel.fadeState = 'hidden';
-    makeWishLabel.opacity = 0;
-    makeWishLabel.mat.opacity = 0;
-  }
   
   if (wishMessage) {
     scene.remove(wishMessage.sprite);
@@ -1837,7 +1702,6 @@ function reset() {
   if (sunGlowSprite) { scene.remove(sunGlowSprite); sunGlowSprite = null; }
   if (venusMesh) { scene.remove(venusMesh); venusMesh = null; }
   if (neptuneMesh) { scene.remove(neptuneMesh); neptuneMesh = null; }
-  if (makeWishLabel) { scene.remove(makeWishLabel.sprite); makeWishLabel = null; }
   constellationGroups.forEach(g => scene.remove(g));
   constellationGroups = [];
   easterEggs.forEach(egg => scene.remove(egg));
